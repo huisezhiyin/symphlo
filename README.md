@@ -2,6 +2,10 @@
 
 > Open-source Local Alpha under the Apache License 2.0.
 
+[![CI](https://github.com/huisezhiyin/symphlo/actions/workflows/ci.yml/badge.svg)](https://github.com/huisezhiyin/symphlo/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-local%20alpha-orange.svg)](#current-local-alpha-boundary)
+
 ## A slidable, observable outer loop for durable Agent work
 
 Agents are good at looping: inspect, reason, use tools, revise and continue.
