@@ -248,3 +248,15 @@ The ambition is narrow and practical: preserve Agent autonomy, make durable
 work observable, and let teams choose exactly how much of the loop they need to
 operate. The inner loop supplies intelligence. The outer loop supplies
 continuity, responsibility and evidence.
+
+## Background essay
+
+The product motivation is explored more directly in the Chinese-language essay
+[Why General-Purpose Agents Are a Trap](https://github.com/huisezhiyin/sdd-riper/blob/main/docs/general-purpose-agents-are-a-trap.md).
+It argues for solving concrete, repeatable work with the right mix of Agents,
+APIs and deterministic structure instead of treating one general-purpose Agent
+as the whole product.
+
+The essay is context, not a protocol contract. Symphlo's narrower engineering
+rule remains: externalize a phase only when its observation, recovery,
+replacement or maintenance value earns the coordination cost.
