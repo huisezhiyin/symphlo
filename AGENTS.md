@@ -22,6 +22,9 @@
 
 - Symphlo is a durable task runtime above Agent loops, not a general low-code platform and not an Agent UI shell.
 - An Agent is a first-class Node executor. It may keep its internal loop, while Symphlo owns observable inputs, effects, executor identity, events, accepted results, Context and Artifacts.
+- Symphlo guides Agent work through external task boundaries; it does not modify, expose or claim control over private Agent reasoning.
+- Loop ownership slides with explicit Node granularity: broad Agent Nodes preserve more Agent autonomy, while finer semantic boundaries give the Flow more orchestration, evidence and recovery responsibility.
+- Do not infer one model call from a small task. `Agent Node` may contain an opaque loop; a future atomic Model or Tool Node requires a distinct contract that truthfully guarantees one invocation.
 - Flow controls `what / who / when / handoff`; an Agent controls `how` inside its Node boundary.
 - Flow definitions, Run state, Context, Artifacts and history are product truth. Agent sessions and conversations are not.
 - The public product must remain agent-agnostic and capability/adapter-driven.
@@ -45,6 +48,7 @@
 - Adapters return versioned results and events; they never mutate Flow or Run truth directly.
 - Local Alpha must not create a Local-only execution shortcut.
 - Case-specific semantics belong in Flow, Prompt, Capability, schema and eval, not in Runtime, scheduler, database or product-page forks.
+- Public claims must distinguish implemented evidence boundaries from future atomic LLM Nodes, branching loops, Node-level rerun/fork and debugger automation.
 
 ## Validation
 

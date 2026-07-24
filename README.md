@@ -26,14 +26,36 @@ One autonomous Agent session          A Symphlo outer loop
      ...                                  article.md Artifact
 ```
 
-This is not chain-of-thought tracing. Symphlo does not split model calls, tool
-calls or turns. Each Agent Node keeps its normal, opaque inner loop and decides
-**how** to finish its task.
+Granularity is also a slider between Agent autonomy and Flow orchestration:
+
+```text
+Broad Agent Node                         Explicit semantic boundaries
+
+Flow -> [ autonomous Agent loop ]        Flow -> Research -> Draft -> Review
+          Agent owns most iteration               Flow owns more handoffs
+
+high Agent autonomy  <-------------------------------->  high Flow orchestration
+```
+
+Symphlo does not modify the Agent to move along this spectrum. It shapes work
+from the outside through bounded tasks, accepted Context, result contracts,
+effects, executor selection and state transitions.
+
+This is not chain-of-thought tracing. The current Local Alpha does not split an
+Agent Node into its private model calls, tool calls or turns. Each Agent Node
+keeps its normal, opaque inner loop and decides **how** to finish its task.
 
 `Slidable` does not mean automatic decomposition or a runtime Loop-depth mode.
 It is a design and maintenance choice about how much of the high-level Agent
 Loop is worth externalizing. Every externalized boundary persists accepted
 input, executor, effects, events, result, handoff and Artifacts.
+
+At the deliberate fine-grained limit, an Agentic Flow could use explicitly
+atomic model-inference and tool-invocation Nodes so that the Flow owns the
+decision loop. That is a different truthful executor contract, not inspection
+or decomposition of an existing Agent's private loop. General atomic LLM
+Nodes, branching loops and automatic conversion are not implemented in this
+Local Alpha.
 
 Externalization also opens execution supply. Each boundary can deliberately
 bind the right Agent, HTTP service, MCP tool, CLI, local script or Human.
@@ -182,6 +204,33 @@ Symphlo becomes valuable when work has one or more of these properties:
 In these scenarios, an explicit outer Flow can be more reusable and operable
 than a loose Skill invocation or one long autonomous Agent session. The user
 entrypoint can still remain simple: a natural-language goal or one command.
+
+### Bounded intelligence for repetitive office work
+
+Many useful tasks need less autonomy than a general-purpose Agent and more
+judgment than a deterministic script: classify changing emails, extract fields
+from documents, draft a response, assemble a report or flag an exception. The
+best shape is often a deterministic process skeleton with bounded Agent or
+Capability Nodes only where interpretation is valuable.
+
+An ordinary operator should be able to choose a proven task, provide materials,
+confirm sensitive effects and receive a familiar deliverable. Flow authors and
+developers can inspect the deeper contracts and evidence. The goal is not a
+cheaper low-quality Agent; it is repeatable intelligent work with predictable
+boundaries.
+
+### Debug Agent work from the outside
+
+Symphlo can also wrap one existing Agent as a broad black box, persist its
+accepted input and output, and then externalize recurring failure or review
+points into narrower Nodes. Context snapshots, executor identity, events,
+Artifacts and comparable Runs make it possible to isolate an unstable phase,
+replace its Agent or tool and measure the result without exposing private
+reasoning.
+
+The current Alpha provides the evidence foundation and cross-Run comparison.
+Node-level fork/rerun, automated evaluation, repair and full failure
+localization remain future debugger capabilities.
 
 ### Choose the right operating model
 
@@ -382,8 +431,10 @@ Implemented now:
 
 Not implemented yet: provider SDK adapters, retries, resume/repair, branching,
 parallelism, approvals, a general graph builder, remote Control Plane
-or Server deployment. The current Local API is versioned but loopback-only. The
-Canvas is an App-owned editor for the supported linear subset of a portable
+or Server deployment. General atomic LLM Nodes, automatic granularity
+conversion, Node-level Run fork/rerun and a complete Agent debugging suite are
+also outside this Alpha. The current Local API is versioned but loopback-only.
+The Canvas is an App-owned editor for the supported linear subset of a portable
 Flow contract; persisted Flow DSL and Runtime evidence, not React state, remain
 the source of truth.
 

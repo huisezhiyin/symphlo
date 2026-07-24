@@ -29,6 +29,22 @@ handoff value earns the coordination cost. This is a design-time and
 maintenance choice, not automatic decomposition, runtime graph rewriting or a
 Loop-depth execution mode.
 
+Granularity also changes who owns the observable loop. With one broad Agent
+Node, the Agent owns most adaptive iteration and the Flow owns only the durable
+envelope. As semantic phases become separate Nodes, more of the high-level loop
+becomes explicit Flow orchestration. Symphlo does not modify the Agent or
+inspect private reasoning to make this happen. It shapes execution from the
+outside through bounded tasks, accepted Context, result contracts, effects,
+executor selection and state transitions.
+
+At the deliberate fine-grained limit, a future Flow may bind explicitly atomic
+model-inference and tool-invocation contracts. In that mode the Flow Runtime can
+own a decision loop that might otherwise live inside an Agent Runtime. This is
+not decomposition or surveillance of an existing Agent's private loop; it is a
+different, explicit execution design. The current Local Alpha externalizes
+semantic Agent and Capability tasks and does not provide a general atomic
+model-call graph, branching decision loop or automatic granularity conversion.
+
 Externalization also makes each selected phase independently assignable to an
 appropriate Agent, MCP tool, HTTP service, CLI, local script, compute step or
 Human. Multi-Agent and multi-capability collaboration emerge from explicit
@@ -37,9 +53,11 @@ on one opaque session. Users gain understandable control over steps, problems
 and deliverables; developers gain versioned bindings, replaceable executors and
 comparable evidence instead of hope-based orchestration.
 
-Designers split semantic work such as `observe -> analyze -> challenge ->
-deliver`, not individual model calls, tool calls or turns. Every Agent Node may
-still run its own autonomous inner loop.
+Designers normally split semantic work such as `observe -> analyze -> challenge
+-> deliver`, not an Agent's private model calls, tool calls or turns. Every
+Agent Node may still run its own autonomous inner loop. An atomic Model or Tool
+Node, if introduced, must be a distinct truthful contract rather than an
+assumption inferred from a small task description.
 
 An Agent is a first-class Node executor. The Agent may decide that its task
 requires one model call, many turns or its normal internal loop. Symphlo does
@@ -72,22 +90,43 @@ orchestration only where explicit task operations create value.
    externalize more semantic phases when observation, recovery, replacement or
    maintenance value justifies the extra boundary. Maximum decomposition is not
    a goal and does not require a different Runtime.
-4. **Open execution supply**: Agent, MCP, HTTP, CLI, local script, compute and
+4. **Sliding loop ownership**: broad Nodes preserve more Agent autonomy; finer
+   explicit boundaries give the Flow more orchestration, evidence and recovery
+   responsibility without modifying private Agent cognition.
+5. **Open execution supply**: Agent, MCP, HTTP, CLI, local script, compute and
    Human executors collaborate behind explicit portable Node contracts.
-5. **Controllable**: users see understandable steps, problems and deliverables;
+6. **Controllable**: users see understandable steps, problems and deliverables;
    developers can inspect, replace and maintain exact executor bindings.
-6. **Durable**: a task survives process, Agent and conversation boundaries.
-7. **Repeatable**: one immutable task version can run again with new inputs.
-8. **Maintainable**: comparable Runs identify unstable steps and affected work.
-9. **Agent-agnostic**: capabilities and versioned adapters sit behind portable contracts.
-10. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
-11. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
+7. **Debuggable from the boundary**: accepted Context, results, events,
+   executors and Artifacts make Agent work replayable and comparable without
+   exposing chain-of-thought.
+8. **Durable**: a task survives process, Agent and conversation boundaries.
+9. **Repeatable**: one immutable task version can run again with new inputs.
+10. **Maintainable**: comparable Runs identify unstable steps and affected work.
+11. **Agent-agnostic**: capabilities and versioned adapters sit behind portable contracts.
+12. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
+13. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
 
 ## 3. Public Experience
 
 The normal user path starts from a goal and materials, not from YAML, a Canvas,
 an Agent selector or runtime terminology. Advanced users may inspect portable
 definitions, exact executors, Context and evidence.
+
+This is especially useful for non-technical office users whose work is
+repetitive but not fully deterministic: a stable process receives changing
+emails, documents or tables, uses bounded intelligence for classification,
+extraction, drafting or review, and returns a familiar deliverable. The normal
+operator should see tasks, materials, progress, exceptions, confirmations and
+results. Flow internals remain progressive disclosure for authors, operators
+and developers.
+
+The same evidence supports an expert debugging path. A team can begin with one
+broad black-box Agent Node, repeat the task, externalize a recurring failure or
+review boundary, compare Runs and replace only the unstable executor. Symphlo
+debugs observable Agent work rather than private cognition. Node-level
+fork/rerun, automated evaluation and repair remain future capabilities unless
+explicitly implemented by the current Runtime.
 
 The Local Alpha command path is progressive: bare `make` explains the choices,
 `make doctor` checks offline readiness without requiring an Agent, `make
@@ -220,6 +259,8 @@ User experience
 - Server-first deployment, SaaS, multi-tenancy or Remote operations.
 - Desktop signing, notarization, self-contained installer or automatic updates.
 - General graph-editor parity, branching, parallelism or automatic graph rewriting.
+- A general atomic LLM-call graph or replacement for every Agent Runtime.
+- Node-level Run fork/rerun, automated failure localization or a complete Agent debugger.
 - Cross-Run or restart-time external conversation resume.
 - Third-party-derived source, assets, backend, runtime, database, provider or design import.
 - Internal integrations, Pilot material, company identity or private adapter publication.

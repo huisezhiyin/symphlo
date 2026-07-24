@@ -78,6 +78,46 @@ accepted Result + events + Context update + Artifact
 Symphlo observes the envelope. It does not need private chain-of-thought or a
 microscope over every internal action.
 
+## Loop ownership slides without intrusion
+
+Task granularity changes more than the number of boxes on a Canvas. It changes
+who owns the observable loop.
+
+```text
+Broad Agent Node                         Explicit semantic boundaries
+
+Flow -> [ autonomous Agent loop ]        Flow -> Observe -> Draft -> Review
+          Agent owns most iteration               Flow owns more handoffs
+
+high Agent autonomy  <-------------------------------->  high Flow orchestration
+```
+
+Symphlo does not need to modify an Agent to move along this spectrum. It can
+shape work from the outside by controlling the bounded task, accepted Context,
+result contract, effects, executor binding and state transition. The Agent
+remains free inside its declared Node boundary, while the Flow determines what
+responsibility exists before and after that boundary.
+
+At the deliberate fine-grained limit, a different Flow design may bind
+explicitly atomic model-inference and tool-invocation contracts. The Flow
+Runtime can then own a decision loop that might otherwise be implemented inside
+an Agent Runtime:
+
+```text
+Observe -> Model decision -> Tool -> Evaluate -> Model response -> Deliver
+```
+
+That is not surveillance or decomposition of an existing Agent's private loop.
+It is a different execution contract in which the model or tool is atomic by
+design. A small prompt does not prove that an `Agent Node` performs only one
+model call. An atomic Model or Tool Node must say so truthfully and enforce the
+contract.
+
+The current Local Alpha stays on the semantic-task portion of this spectrum. It
+supports linear Agent, Capability and Artifact tasks. It does not yet provide a
+general atomic model-call graph, branching decision loop, retry/resume graph or
+automatic conversion between granularities.
+
 ## Magnification, not microscopic surveillance
 
 Imagine one writing Agent that researches, plans, drafts, criticizes, revises
@@ -89,8 +129,8 @@ Research -> Plan -> Draft -> Review -> Revise -> Publish
 ```
 
 The loop has been magnified into semantic boundaries that an operator can see.
-It has not been decomposed into token windows, model calls, turns or individual
-tool invocations.
+The existing Agent's private activity has not been decomposed into token
+windows, model calls, turns or individual tool invocations.
 
 This distinction protects both autonomy and privacy. Observability means
 accepted task evidence, not exposure of hidden reasoning. Orchestration means
@@ -108,6 +148,35 @@ needs to know:
 
 Conversation transcripts and Agent sessions may help an executor work, but they
 are not the task's source of truth.
+
+## A debugger for Agent work, not private cognition
+
+The same granularity slider provides a practical debugging method. Begin with
+one broad Agent Node and persist its accepted envelope. When repeated Runs fail
+or require the same manual correction, externalize one meaningful boundary:
+research, planning, review, approval or delivery. The new boundary acts like an
+operational breakpoint.
+
+This makes useful debugging evidence explicit:
+
+- accepted Context behaves like inspectable intermediate state;
+- ordered events show where durable execution stopped;
+- executor identity and version reveal what actually ran;
+- effects show what authority was available;
+- Results and Artifacts show what crossed the boundary;
+- comparable Runs reveal whether a replacement improved the task.
+
+The operator can narrow the unstable phase, change its instructions or
+executor, and compare another Run. If the boundary no longer earns its cost, it
+can be merged back into a broader Agent task. The objective is not maximum
+decomposition. It is the smallest observable boundary that explains and fixes
+the operational failure.
+
+This does not reveal why a model formed a private thought. It answers the more
+operable questions: what input was accepted, which responsibility failed, what
+output crossed the handoff and whether the repaired task now behaves better.
+Node-level fork/rerun, automated evaluators, failure localization and repair are
+natural extensions of this model, not claims about the current Local Alpha.
 
 ## Granularity is a design decision with an economic test
 
@@ -204,6 +273,18 @@ Agent may complete one issue brilliantly. The outer loop matters when the team
 must explain which evidence was accepted, resume after an editorial rejection,
 replace a weak research executor, or compare six months of Runs.
 
+The same pattern appears in ordinary office work. An inbox triage, invoice
+review, document extraction, customer-response draft or weekly report often has
+a stable process, changing materials and a few places where interpretation is
+valuable. These users do not need maximum Agent autonomy. They need a
+deterministic skeleton with bounded intelligence, clear exceptions, human
+confirmation for sensitive effects and a familiar deliverable.
+
+This is an important product discipline. The normal operator should see the
+task, materials, progress, questions and result. Flow internals, schemas,
+executor fingerprints and evidence remain available to the people authoring,
+operating or debugging the task.
+
 ## Where it does not win
 
 A credible philosophy needs stop rules.
@@ -266,10 +347,12 @@ The deeper evidence exists for the moments when it matters: a failure must be
 recovered, a result audited, an executor replaced, or a repeated task improved.
 A visual Canvas may project that truth, but it must never own it.
 
-The ambition is narrow and practical: preserve Agent autonomy, make durable
-work observable, and let teams choose exactly how much of the loop they need to
-operate. The inner loop supplies intelligence. The outer loop supplies
-continuity, responsibility and evidence.
+The ambition is narrow and practical: preserve Agent autonomy where it earns
+its freedom, make durable work observable, and let teams choose exactly how much
+of the loop they need to operate. Broad Nodes favor autonomous execution. Finer
+boundaries favor orchestration, debugging and repeatability. The inner loop
+supplies adaptive intelligence; the outer loop supplies continuity,
+responsibility, evidence and bounded control.
 
 ## Background essay
 
