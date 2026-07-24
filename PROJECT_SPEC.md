@@ -10,9 +10,10 @@
 
 ## 1. Product Thesis
 
-Symphlo is a durable task runtime above Agent loops. It turns work that would
-otherwise live in one opaque Agent session into a versioned task with explicit
-boundaries, durable state, observable handoffs and inspectable results.
+Symphlo is a slidable, observable outer loop for durable Agent work. It
+selectively externalizes high-level phases that would otherwise remain inside
+one opaque Agent session, turning them into versioned task boundaries with
+durable state, observable handoffs and inspectable results.
 
 This layer is most valuable for fixed orchestration, repeated execution and
 long-running chains. In those cases, a reusable Flow can outperform a loose
@@ -20,8 +21,22 @@ Skill or one autonomous Agent session on repeatability, recovery, evidence and
 maintenance while keeping the user entrypoint simple. Open-ended, disposable
 work may still be better served by one autonomous Agent without an outer Flow.
 
-Its primary design move is to externalize the useful high-level phases of an
+Its primary design move is to externalize useful high-level phases of an
 otherwise opaque Agent loop into an observable and orchestratable outer loop.
+Task granularity can slide from one broad Agent Node toward more semantic
+boundaries when observation, recovery, replacement, maintenance or explicit
+handoff value earns the coordination cost. This is a design-time and
+maintenance choice, not automatic decomposition, runtime graph rewriting or a
+Loop-depth execution mode.
+
+Externalization also makes each selected phase independently assignable to an
+appropriate Agent, MCP tool, HTTP service, CLI, local script, compute step or
+Human. Multi-Agent and multi-capability collaboration emerge from explicit
+Node contracts and inspectable handoffs, not from putting several Agent names
+on one opaque session. Users gain understandable control over steps, problems
+and deliverables; developers gain versioned bindings, replaceable executors and
+comparable evidence instead of hope-based orchestration.
+
 Designers split semantic work such as `observe -> analyze -> challenge ->
 deliver`, not individual model calls, tool calls or turns. Every Agent Node may
 still run its own autonomous inner loop.
@@ -49,18 +64,24 @@ orchestration only where explicit task operations create value.
 
 ## 2. Product Properties
 
-1. **Durable**: a task survives process, Agent and conversation boundaries.
-2. **Observable**: useful Node boundaries expose state, evidence and failure.
-3. **Repeatable**: one immutable task version can run again with new inputs.
-4. **Maintainable**: comparable Runs identify unstable steps and affected work.
-5. **Agent-agnostic**: capabilities and versioned adapters sit behind portable contracts.
-6. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
-7. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
-8. **Inspectable outer loop**: selected semantic phases and handoffs can be manually separated, observed, retried and replaced without exposing an Agent's internal reasoning loop.
-9. **Sliding task granularity**: designers may keep one broad Agent Node or
+1. **Externalized**: selected high-level phases become explicit task boundaries
+   without exposing or controlling the Agent's private reasoning loop.
+2. **Observable**: useful Node boundaries persist accepted input, executor,
+   effects, events, results, handoffs and Artifacts.
+3. **Sliding task granularity**: designers may keep one broad Agent Node or
    externalize more semantic phases when observation, recovery, replacement or
    maintenance value justifies the extra boundary. Maximum decomposition is not
    a goal and does not require a different Runtime.
+4. **Open execution supply**: Agent, MCP, HTTP, CLI, local script, compute and
+   Human executors collaborate behind explicit portable Node contracts.
+5. **Controllable**: users see understandable steps, problems and deliverables;
+   developers can inspect, replace and maintain exact executor bindings.
+6. **Durable**: a task survives process, Agent and conversation boundaries.
+7. **Repeatable**: one immutable task version can run again with new inputs.
+8. **Maintainable**: comparable Runs identify unstable steps and affected work.
+9. **Agent-agnostic**: capabilities and versioned adapters sit behind portable contracts.
+10. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
+11. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
 
 ## 3. Public Experience
 

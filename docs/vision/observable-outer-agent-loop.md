@@ -1,4 +1,4 @@
-# The Observable Outer Agent Loop
+# The Slidable, Observable Outer Agent Loop
 
 ## The missing layer is not more intelligence
 
@@ -18,13 +18,35 @@ Agent session, a team cannot reliably answer basic operational questions:
 - Which part can resume without replaying everything?
 - Did the next Run behave like the previous one?
 
-Symphlo exists for that gap. It is a durable task runtime above Agent loops.
-Its central separation is:
+Symphlo exists for that gap. It is a slidable, observable outer loop for
+durable Agent work. It selectively externalizes useful high-level phases while
+leaving each Agent's private inner loop autonomous. Its central separation is:
 
 > Flow controls what, who, when and handoff. The Agent controls how.
 
 The Agent keeps its opaque inner loop. The outer task loop makes selected
 semantic phases durable, observable and orchestratable.
+
+The outer granularity can slide. One broad Agent Node may own the complete
+inner loop, or selected phases may become separate durable Nodes when their
+observation, recovery, replacement, maintenance or handoff value earns the
+coordination cost. Sliding is a design and maintenance decision—not automatic
+decomposition, runtime graph rewriting or a Loop-depth mode.
+
+## Externalization opens execution supply
+
+An externalized phase is not merely visible. It becomes an independently
+assignable task boundary. One Node may use an Agent with its own inner loop,
+the next an HTTP service or MCP tool, and another a CLI, local script, compute
+step or Human. Different Agents can collaborate because accepted Context,
+results and Artifacts cross explicit handoffs rather than depending on one
+conversation to remember and improvise the whole chain.
+
+This is where observability becomes control. Users can see understandable
+steps, current state, problems and deliverables. Developers can inspect exact
+executor versions, replace an unstable capability and compare Runs after the
+change. The system does not promise that an Agent or LLM will somehow work
+everything out; it makes responsibility, evidence and maintenance explicit.
 
 ## Two loops operate on different clocks
 

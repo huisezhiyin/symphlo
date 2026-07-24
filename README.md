@@ -2,15 +2,17 @@
 
 > Open-source Local Alpha under the Apache License 2.0.
 
-## An observable outer loop for durable Agent work
+## A slidable, observable outer loop for durable Agent work
 
 Agents are good at looping: inspect, reason, use tools, revise and continue.
 That autonomy is exactly what makes them useful—and what makes fixed, repeated
 or long-chain work difficult to operate when everything stays inside one Agent
 session.
 
-Symphlo lets you **magnify selected high-level phases of an Agent loop** into a
-durable, observable and orchestratable outer loop:
+Symphlo lets you **externalize selected high-level phases of an Agent's inner
+loop** into a durable outer loop. Its task granularity can slide from one broad
+Agent Node to multiple observable boundaries when recovery, replacement,
+maintenance or explicit handoff makes the extra coordination worthwhile:
 
 ```text
 One autonomous Agent session          A Symphlo outer loop
@@ -27,6 +29,23 @@ One autonomous Agent session          A Symphlo outer loop
 This is not chain-of-thought tracing. Symphlo does not split model calls, tool
 calls or turns. Each Agent Node keeps its normal, opaque inner loop and decides
 **how** to finish its task.
+
+`Slidable` does not mean automatic decomposition or a runtime Loop-depth mode.
+It is a design and maintenance choice about how much of the high-level Agent
+Loop is worth externalizing. Every externalized boundary persists accepted
+input, executor, effects, events, result, handoff and Artifacts.
+
+Externalization also opens execution supply. Each boundary can deliberately
+bind the right Agent, HTTP service, MCP tool, CLI, local script or Human.
+Different Agents and capabilities can therefore collaborate through explicit,
+inspectable handoffs instead of leaving one opaque Agent session to improvise
+the entire chain.
+
+This gives users understandable steps, live state, problems and deliverables.
+It gives developers versioned contracts, replaceable executors and comparable
+Run evidence. Symphlo rejects hope-based orchestration. It provides
+maintainable control instead of merely waiting for an Agent or LLM to work
+everything out.
 
 **Flow controls `what / who / when / handoff`. The Agent controls `how`.**
 

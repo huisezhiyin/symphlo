@@ -80,6 +80,42 @@ class CliTests(unittest.TestCase):
         )
         for command in ("make help", "make doctor", "make demo"):
             self.assertIn(command, readme)
+        self.assertIn(
+            "A slidable, observable outer loop for durable Agent work",
+            readme,
+        )
+        self.assertIn(
+            "does not mean automatic decomposition or a runtime Loop-depth mode",
+            readme,
+        )
+        self.assertIn(
+            "Externalization also opens execution supply",
+            readme,
+        )
+        self.assertIn(
+            "maintainable control",
+            readme,
+        )
+        self.assertIn(
+            "hope-based orchestration",
+            readme,
+        )
+        self.assertIn(
+            "The Slidable, Observable Outer Agent Loop",
+            viewpoint,
+        )
+        self.assertIn(
+            "Sliding is a design and maintenance decision",
+            viewpoint,
+        )
+        self.assertIn(
+            "Externalization opens execution supply",
+            viewpoint,
+        )
+        self.assertIn(
+            "This is where observability becomes control",
+            viewpoint,
+        )
         for principle in (
             "Two loops operate on different clocks",
             "Granularity is a design decision with an economic test",
