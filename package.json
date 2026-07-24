@@ -1,0 +1,22 @@
+{
+  "name": "symphlo-local-alpha",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "desktop:build": "pnpm --filter @symphlo/desktop build",
+    "desktop:dev": "pnpm --filter @symphlo/desktop dev",
+    "desktop:lint": "pnpm --filter @symphlo/desktop lint",
+    "desktop:package": "pnpm --filter @symphlo/desktop package:mac",
+    "desktop:smoke": "pnpm --filter @symphlo/desktop test:smoke",
+    "desktop:test": "pnpm --filter @symphlo/desktop test",
+    "desktop:typecheck": "pnpm --filter @symphlo/desktop typecheck",
+    "web:build": "pnpm --filter @symphlo/web build",
+    "web:lint": "pnpm --filter @symphlo/web lint",
+    "web:test": "pnpm --filter @symphlo/web test",
+    "web:typecheck": "pnpm --filter @symphlo/web typecheck"
+  }
+}

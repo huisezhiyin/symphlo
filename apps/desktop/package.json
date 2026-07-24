@@ -1,0 +1,24 @@
+{
+  "name": "@symphlo/desktop",
+  "productName": "Symphlo",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm build && electron .",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "package:mac": "pnpm build && node scripts/package-macos.mjs",
+    "test": "pnpm build && node --test scripts/*.test.mjs",
+    "test:smoke": "pnpm build && node scripts/smoke-macos.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.0.2",
+    "@types/node": "26.1.1",
+    "electron": "43.1.0",
+    "typescript": "5.9.3"
+  }
+}
