@@ -2,7 +2,7 @@
 
 ## 0. Status
 
-- Status: `open-source Local Alpha; A011 first public source release`
+- Status: `open-source Local Alpha; A014 Run Stability Read Model`
 - Repository: `https://github.com/huisezhiyin/symphlo`
 - Publication: `authorized for public main`
 - Delivery focus: `cloneable, public-registry reproducible Local Alpha`
@@ -235,6 +235,50 @@ without depending on a temporary business Gate or public service. Its absolute
 URL and fingerprint follow the Runtime's ephemeral port; only Runtime-owned
 sample pins are refreshed across Desktop sessions. Manual and discovered
 Capability fingerprints remain immutable.
+
+### 4.1 A014 Run Stability Read Model
+
+A014 generalizes the canonical demo's two-Run comparison into one read-only
+Local API report for any saved Task:
+
+```text
+GET /api/v1/tasks/{task_id}/stability?flow_hash=<64-hex-sha256>
+```
+
+Only terminal Runs with the exact requested `task_id` and immutable
+`flow_hash` are comparable. Runs from edited definitions are never pooled.
+The report orders Runs chronologically and classifies each Node from observable
+execution status:
+
+- `not_observed`: no comparable Run reached the Node;
+- `insufficient_evidence`: exactly one comparable Run reached the Node;
+- `stable_success`: at least two observed executions all succeeded;
+- `repeated_failure`: at least two observed executions all failed or were
+  cancelled;
+- `unstable`: observed success and failure classes differ.
+
+The read model may expose Run ids, counts, latest Node status, executor
+identity/version and evidence levels. It MUST NOT expose Node input/output,
+Prompt, event payload, Context value, Agent session reference, local path,
+credential or Artifact content.
+
+Operational stability does not mean byte-identical output. Repeated office
+work may consume different materials and legitimately produce different
+deliverables. The existing deterministic demo comparison remains a separate
+evidence contract.
+
+A014 adds no persistence table, Runtime transition, mutation, LLM, repair
+candidate, automatic rerun, affected-subgraph logic, Web/Desktop surface or
+Server behavior.
+
+Implementation evidence:
+
+- the pure read model and Local API tests cover chronological ordering,
+  all five classifications, exact hash filtering, invalid and duplicate query
+  rejection, restart persistence and response redaction;
+- source and clean 69-file public export both pass 56 Python, 6 Web and 2
+  Desktop tests through full `make check`;
+- the unchanged deterministic two-Run demo still reports `stable_success`.
 
 ## 5. Stable Architecture Boundary
 

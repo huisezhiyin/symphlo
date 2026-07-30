@@ -10,7 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .console_compat import ConsoleCompat
 from .workspace import LocalWorkspace, RunConflictError
@@ -43,7 +43,8 @@ class LocalAppHandler(BaseHTTPRequestHandler):
     server: LocalAppServer
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
-        route = unquote(urlsplit(self.path).path)
+        request = urlsplit(self.path)
+        route = unquote(request.path)
         try:
             if route == "/api/v1/system/status":
                 self._send_json(self.server.workspace.system_status())
@@ -78,6 +79,30 @@ class LocalAppHandler(BaseHTTPRequestHandler):
                 return
             if route == "/api/v1/tasks":
                 self._send_json({"items": self.server.workspace.list_tasks()})
+                return
+            if route.startswith("/api/v1/tasks/") and route.endswith("/stability"):
+                task_id = (
+                    route.removeprefix("/api/v1/tasks/")
+                    .removesuffix("/stability")
+                    .strip("/")
+                )
+                query = parse_qs(request.query, keep_blank_values=True)
+                flow_hashes = query.get("flow_hash", [])
+                if set(query) != {"flow_hash"} or len(flow_hashes) != 1:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST,
+                        "exactly one flow_hash query parameter is required",
+                    )
+                    return
+                try:
+                    report = self.server.workspace.task_stability(
+                        task_id,
+                        flow_hashes[0],
+                    )
+                except ValueError as error:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+                self._send_json(report)
                 return
             if route == "/api/v1/flows":
                 self._send_json({"items": self.server.workspace.list_flows()})

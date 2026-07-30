@@ -138,6 +138,79 @@ class LocalAppTests(unittest.TestCase):
         _, restored = request_json(f"{self.base}/api/v1/runs")
         self.assertEqual(restored["items"][0]["run_id"], run["run_id"])
 
+    def test_task_stability_report_is_exact_read_only_and_survives_restart(self) -> None:
+        _, tasks = request_json(f"{self.base}/api/v1/tasks")
+        canonical = tasks["items"][0]
+        task_id = canonical["task_id"]
+        flow_hash = canonical["flow"]["semantic_hash"]
+        stability_url = (
+            f"{self.base}/api/v1/tasks/{task_id}/stability?flow_hash={flow_hash}"
+        )
+
+        _, empty = request_json(stability_url)
+        self.assertEqual(empty["comparable_run_count"], 0)
+        self.assertTrue(
+            all(node["classification"] == "not_observed" for node in empty["nodes"])
+        )
+
+        for _ in range(2):
+            _, admitted = request_json(
+                f"{self.base}/api/v1/runs",
+                {"task_id": task_id, "executor": "deterministic"},
+            )
+            wait_for_json(f"{self.base}/api/v1/runs/{admitted['run_id']}/evidence")
+
+        _, report = request_json(stability_url)
+        self.assertEqual(report["task_id"], task_id)
+        self.assertEqual(report["flow_hash"], flow_hash)
+        self.assertEqual(report["comparable_run_count"], 2)
+        self.assertTrue(
+            all(node["classification"] == "stable_success" for node in report["nodes"])
+        )
+        serialized = json.dumps(report)
+        for forbidden in (
+            "input_json",
+            "output_json",
+            "payload_json",
+            "context",
+            "session",
+            "relative_path",
+            "content_url",
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.server = create_local_app(
+            self.root,
+            self.state_root,
+            port=0,
+            web_root=self.web_root,
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+        _, restored = request_json(
+            f"{self.base}/api/v1/tasks/{task_id}/stability?flow_hash={flow_hash}"
+        )
+        self.assertEqual(restored, report)
+
+        for path, expected in (
+            (f"/api/v1/tasks/{task_id}/stability", 400),
+            (f"/api/v1/tasks/{task_id}/stability?flow_hash=invalid", 400),
+            (
+                f"/api/v1/tasks/{task_id}/stability?flow_hash={flow_hash}"
+                f"&flow_hash={'b' * 64}",
+                400,
+            ),
+            (f"/api/v1/tasks/{task_id}/stability?flow_hash={'b' * 64}", 404),
+        ):
+            with self.subTest(path=path):
+                with self.assertRaises(HTTPError) as raised:
+                    request_json(f"{self.base}{path}")
+                self.assertEqual(raised.exception.code, expected)
+
     def test_api_rejects_unknown_executor_without_creating_run(self) -> None:
         _, tasks = request_json(f"{self.base}/api/v1/tasks")
         request = Request(

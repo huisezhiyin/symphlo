@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sys
 import threading
@@ -23,8 +24,9 @@ from .capability_executors import executor_for_capability, probe_capability
 from .contracts import Effect, ExecutorRef, FlowDefinition, JsonObject, NodeDefinition
 from .demo import DEFAULT_TOPIC, GRANULARITIES, Granularity, writing_flow
 from .executors import CancellationToken, agent_preset_executor, writing_executors
+from .maintenance import build_stability_report
 from .runtime import ExecutorRegistry, LocalRuntime
-from .store import ACTIVE_RUN_STATUSES, EvidenceStore
+from .store import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, EvidenceStore
 
 TASK_CATALOG_VERSION = 1
 EXECUTOR_IDS = ("deterministic", "codex", "opencode")
@@ -529,6 +531,66 @@ class LocalWorkspace:
                 for artifact in evidence["artifacts"]
             ],
         }
+
+    def task_stability(self, task_id: str, flow_hash: str) -> JsonObject:
+        task = self.task(task_id)
+        if re.fullmatch(r"[0-9a-f]{64}", flow_hash) is None:
+            raise ValueError("flow_hash must be a lowercase 64-hex sha256")
+
+        current_flow = cast(JsonObject, task["flow"])
+        current_hash = str(current_flow["semantic_hash"])
+        node_order: tuple[str, ...] | None = None
+        comparable_runs: list[JsonObject] = []
+        hash_belongs_to_task = flow_hash == current_hash
+
+        for metadata_path in self.state_root.glob("run-*/app-run.json"):
+            metadata = self._read_json(metadata_path)
+            if metadata.get("task_id") != task_id or metadata.get("flow_hash") != flow_hash:
+                continue
+            hash_belongs_to_task = True
+            raw_order = metadata.get("node_order")
+            if not isinstance(raw_order, list) or not all(
+                isinstance(node_id, str) and node_id for node_id in raw_order
+            ):
+                raise RuntimeError("Run metadata has invalid node_order")
+            run_order = tuple(cast(list[str], raw_order))
+            if node_order is None:
+                node_order = run_order
+            elif node_order != run_order:
+                raise RuntimeError("exact Flow hash has inconsistent node_order")
+
+            evidence = EvidenceStore(metadata_path.parent).run_evidence(
+                str(metadata["run_id"])
+            )
+            run = cast(JsonObject, evidence["run"])
+            if run["status"] not in TERMINAL_RUN_STATUSES:
+                continue
+            comparable_runs.append(
+                {
+                    "run_id": run["run_id"],
+                    "status": run["status"],
+                    "started_at": run["started_at"],
+                    "nodes": evidence["nodes"],
+                }
+            )
+
+        if not hash_belongs_to_task:
+            raise KeyError((task_id, flow_hash))
+        if node_order is None:
+            raw_nodes = current_flow.get("nodes")
+            if not isinstance(raw_nodes, list):
+                raise RuntimeError("current Flow has invalid nodes")
+            node_order = tuple(
+                str(node["node_id"])
+                for node in raw_nodes
+                if isinstance(node, dict) and node.get("node_id")
+            )
+        return build_stability_report(
+            task_id,
+            flow_hash,
+            node_order,
+            comparable_runs,
+        )
 
     def artifact(self, artifact_id: str) -> tuple[Path, str, str]:
         for metadata_path in sorted(self.state_root.glob("run-*/app-run.json"), reverse=True):
