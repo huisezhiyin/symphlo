@@ -1,3 +1,9 @@
+import {
+  flowInputControlValue,
+  flowInputDefinitions,
+  parseFlowInputValues,
+} from "./flow-inputs.js";
+
 const state = {
   selectedTemplateId: null,
   templates: [],
@@ -9,6 +15,8 @@ const state = {
   plan: null,
   aiEditResult: null,
   repairResult: null,
+  runComparison: null,
+  comparisonTargetRunId: null,
   run: null,
   task: null,
   runtimeCommand: "",
@@ -24,6 +32,7 @@ const state = {
   discoveredCapabilities: [],
   capabilityFilter: "all",
   capabilityQuery: "",
+  flowInputSignature: null,
 };
 
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled"]);
@@ -235,9 +244,50 @@ async function api(path, options = {}) {
     }
   }
   if (!response.ok) {
-    throw new Error(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+    const error = new Error(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+    error.status = response.status;
+    error.body = body;
+    throw error;
   }
   return body;
+}
+
+function effectAuthorizationChallenge(error) {
+  const body = error && error.body;
+  return error && error.status === 428
+    && body && body.contract_version === "symphlo.effect-authorization-required.v1"
+    ? body
+    : null;
+}
+
+function confirmEffectAuthorization(challenge) {
+  const effects = Array.isArray(challenge.effects) ? challenge.effects : [];
+  if (!effects.length || !challenge.authorization) return false;
+  const lines = effects.map((item) => {
+    const nodes = Array.isArray(item.node_ids) ? item.node_ids.join(", ") : "-";
+    return `• ${item.effect} · Nodes: ${nodes}\n  ${item.risk || ""}`;
+  });
+  return window.confirm(
+    `这个 Flow 将执行以下写操作：\n\n${lines.join("\n")}\n\n授权只对当前 Flow、输入和这些 Nodes 有效。是否继续？`,
+  );
+}
+
+async function apiWithEffectAuthorization(path, payload, authorizedContractVersion = null) {
+  try {
+    return await api(path, {method: "POST", body: JSON.stringify(payload)});
+  } catch (error) {
+    const challenge = effectAuthorizationChallenge(error);
+    if (!challenge) throw error;
+    if (!confirmEffectAuthorization(challenge)) {
+      throw new Error("已取消写操作授权；未创建 Run。");
+    }
+    const authorized = {
+      ...payload,
+      effect_authorization: challenge.authorization,
+    };
+    if (authorizedContractVersion) authorized.contract_version = authorizedContractVersion;
+    return api(path, {method: "POST", body: JSON.stringify(authorized)});
+  }
 }
 
 async function loadCatalog() {
@@ -275,7 +325,7 @@ async function loadCatalog() {
 }
 
 function capabilityKindLabel(kind) {
-  return ({agent_cli: "Agent CLI", cli: "JSON CLI", mcp_stdio: "MCP stdio", http: "HTTP"})[kind] || kind;
+  return ({agent_cli: "Agent CLI", model_cli: "Model CLI", evaluator_cli: "Evaluator CLI", cli: "JSON CLI", mcp_stdio: "MCP stdio", http: "HTTP"})[kind] || kind;
 }
 
 function capabilityAvatar(capability) {
@@ -283,6 +333,8 @@ function capabilityAvatar(capability) {
   if (id.includes("codex")) return "CX";
   if (id.includes("opencode")) return "OC";
   if (capability.kind === "mcp_stdio") return "M";
+  if (capability.kind === "model_cli") return "AI";
+  if (capability.kind === "evaluator_cli") return "EV";
   if (capability.kind === "http") return "↗";
   if (capability.kind === "cli") return ">_";
   const initials = String(capability.name || "Agent").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("");
@@ -292,6 +344,8 @@ function capabilityAvatar(capability) {
 function capabilitySummary(capability, connected) {
   if (connected && capability.kind === "agent_cli") return "可作为 Agent Node 的本地执行者，保留内部 Agent loop。";
   if (!connected && capability.kind === "agent_cli") return "已在本机发现。连接后即可绑定到 Agent Node。";
+  if (capability.kind === "model_cli") return "每个 Model Node 发送一次 versioned inference request；不代表 Agent loop。";
+  if (capability.kind === "evaluator_cli") return "只读评估一个 accepted candidate，并返回 versioned pass/fail 控制证据。";
   if (capability.kind === "mcp_stdio") return "通过标准 stdio 生命周期调用固定 MCP tool。";
   if (capability.kind === "http") return "通过固定 GET / POST endpoint 执行并记录结果。";
   if (capability.kind === "cli") return "通过 JSON stdin/stdout 合同执行本地命令。";
@@ -334,7 +388,9 @@ function renderCapabilities() {
   const filteredItems = allItems.filter(({capability}) => {
     const kindMatches = state.capabilityFilter === "all"
       || (state.capabilityFilter === "agent_cli" && capability.kind === "agent_cli")
-      || (state.capabilityFilter === "tools" && capability.kind !== "agent_cli");
+      || (state.capabilityFilter === "model_cli" && capability.kind === "model_cli")
+      || (state.capabilityFilter === "evaluator_cli" && capability.kind === "evaluator_cli")
+      || (state.capabilityFilter === "tools" && !["agent_cli", "model_cli", "evaluator_cli"].includes(capability.kind));
     const queryMatches = !query || [capability.name, capability.id, capability.kind, capability.description]
       .filter(Boolean).join(" ").toLowerCase().includes(query);
     return kindMatches && queryMatches;
@@ -422,6 +478,8 @@ function capabilityDraftFromForm() {
     if (!Array.isArray(args)) throw new Error("Arguments 必须是 JSON array");
     draft.config = {executable: $("capability-executable").value.trim(), args};
     if (kind === "agent_cli") Object.assign(draft.config, {input_mode: $("capability-input-mode").value, output_format: "text"});
+    if (kind === "model_cli") Object.assign(draft.config, {protocol: "symphlo.model-inference.v1"});
+    if (kind === "evaluator_cli") Object.assign(draft.config, {protocol: "symphlo.evaluation.v1"});
     if (kind === "mcp_stdio") Object.assign(draft.config, {tool: $("capability-tool").value.trim(), arguments: staticValue, context_key: "context"});
   }
   return draft;
@@ -532,6 +590,8 @@ async function openRunFromHistory(runId) {
   state.run = run;
   state.task = null;
   state.repairResult = null;
+  state.runComparison = null;
+  state.comparisonTargetRunId = null;
   rememberRun(run);
   renderRun();
   renderRunHistory();
@@ -706,9 +766,9 @@ function renderHub() {
   const optimizeRepairStatus = $("optimize-repair-status");
   if (optimizeRepairStatus) {
     const failed = failedRunStep();
-    optimizeRepairStatus.textContent = state.repairResult
-      ? (state.repairResult.ai_patch && state.repairResult.ai_patch.status) || "returned"
-      : failed ? "待修复" : "-";
+    optimizeRepairStatus.textContent = state.run && state.run.parent_run_id
+      ? "已分叉"
+      : failed ? "可分叉" : "-";
   }
 }
 
@@ -807,6 +867,77 @@ function flowInputDefault(flow, key) {
   return spec.default;
 }
 
+function flowInputSchemaSignature(flow) {
+  return JSON.stringify((flow && flow.inputs) || {});
+}
+
+function renderFlowInputs(flow, {preserve = false} = {}) {
+  const fields = $("flow-input-fields");
+  const empty = $("flow-inputs-empty");
+  if (!fields || !empty) return;
+  const signature = flowInputSchemaSignature(flow);
+  if (preserve && signature === state.flowInputSignature) return;
+  fields.innerHTML = "";
+  const definitions = flowInputDefinitions(flow || {});
+  empty.hidden = definitions.length > 0;
+  empty.textContent = flow
+    ? "这个 Flow 没有声明运行输入，将直接使用上游任务 Context。"
+    : "选择或创建 Flow 后，这里会生成本次运行需要填写的字段。";
+  definitions.forEach((definition) => {
+    const field = document.createElement("label");
+    field.className = "field flow-input-field";
+    const heading = document.createElement("span");
+    heading.textContent = `${definition.label}${definition.required ? " *" : ""}`;
+    const control = flowInputControl(definition);
+    control.id = `flow-input-${definition.key}`;
+    control.dataset.flowInput = definition.key;
+    const detail = document.createElement("small");
+    const description = definition.description ? `${definition.description} · ` : "";
+    detail.textContent = `${description}${definition.type}${definition.required ? " · 必填" : " · 可选"}`;
+    field.append(heading, control, detail);
+    fields.appendChild(field);
+  });
+  state.flowInputSignature = signature;
+}
+
+function flowInputControl(definition) {
+  if (definition.type === "object" || definition.type === "array") {
+    const control = document.createElement("textarea");
+    control.rows = 4;
+    control.placeholder = definition.type === "array" ? '["value"]' : '{"key":"value"}';
+    control.value = flowInputControlValue(definition);
+    return control;
+  }
+  if (definition.type === "boolean") {
+    const control = document.createElement("select");
+    if (!definition.required && !definition.hasDefault) {
+      control.append(new Option("未设置", ""));
+    }
+    control.append(new Option("是（true）", "true"), new Option("否（false）", "false"));
+    control.value = flowInputControlValue(definition);
+    return control;
+  }
+  const control = document.createElement("input");
+  control.type = definition.type === "number" || definition.type === "integer" ? "number" : "text";
+  if (definition.type === "number") control.step = "any";
+  if (definition.type === "integer") control.step = "1";
+  control.value = flowInputControlValue(definition);
+  return control;
+}
+
+function currentFlowInputValues(flow) {
+  const rawValues = {};
+  flowInputDefinitions(flow).forEach((definition) => {
+    const control = $(`flow-input-${definition.key}`);
+    if (control) rawValues[definition.key] = control.value;
+  });
+  return parseFlowInputValues(flow, rawValues);
+}
+
+function declaresFlowInput(flow, key) {
+  return Boolean(flow && flow.inputs && Object.prototype.hasOwnProperty.call(flow.inputs, key));
+}
+
 function hydrateInputsFromFlow(flow) {
   const targetUrl = flowInputDefault(flow, "target_url") || "";
   const targetUrls = flowInputDefault(flow, "target_urls") || [];
@@ -900,6 +1031,7 @@ function setFlow(flow) {
   $("flow-name").textContent = flow.name || flow.id || "未命名 Flow";
   $("flow-desc").textContent = flow.description || "无描述";
   $("flow-status").textContent = flow.execution && flow.execution.mode ? flow.execution.mode : "draft";
+  renderFlowInputs(flow);
   renderCanvas(flow, null);
   renderHub();
 }
@@ -915,6 +1047,7 @@ function clearFlowView() {
   $("flow-name").textContent = "等待生成 Flow";
   $("flow-desc").textContent = "从模板、自然语言或 DSL 创建一个任务 Flow。";
   $("flow-status").textContent = "draft";
+  renderFlowInputs(null);
   renderCanvas(null, null);
   renderPlan(null);
   renderNodeDetail();
@@ -940,6 +1073,7 @@ async function setFlowFromCanvas(nextFlow, reason = "canvas-edit") {
   $("flow-name").textContent = nextFlow.name || nextFlow.id || "未命名 Flow";
   $("flow-desc").textContent = nextFlow.description || "无描述";
   $("flow-status").textContent = nextFlow.execution && nextFlow.execution.mode ? nextFlow.execution.mode : "draft";
+  renderFlowInputs(nextFlow, {preserve: true});
   renderNodeDetail();
   renderHub();
   updateDevSummary();
@@ -1107,8 +1241,11 @@ function renderNodeDetail() {
   const isIfNode = step.type === "flow.if";
   const isSleepNode = step.type === "time.sleep";
   const isAgentNode = promptNode.node_kind === "agent" || step.type === "agent.task";
-  const isCapabilityNode = step.type === "capability.task";
-  const isPromptOnlyNode = isAgentNode || promptNode.node_kind === "llm";
+  const isModelNode = promptNode.node_kind === "model" || promptNode.node_kind === "llm" || step.type === "model.task";
+  const isEvaluationNode = promptNode.node_kind === "evaluation" || step.type === "evaluation.task";
+  const isToolNode = step.type === "tool.task";
+  const isCapabilityNode = isToolNode || step.type === "capability.task";
+  const isPromptOnlyNode = isAgentNode || isModelNode || isEvaluationNode;
   const promptTitle = promptDetailTitle(promptNode.node_kind);
   const promptText = step.prompt || promptNode.prompt || "请执行这个节点对应的低风险任务。";
   const activeSessionGroup = sessionGroupForStep(state.flow, step.id);
@@ -1123,11 +1260,19 @@ function renderNodeDetail() {
       <small>仅 session-capable Agent 支持复用；同组节点在 Run 证据中必须显示相同 conversation ref，否则运行前校验失败。</small>
     </div>
   ` : "";
-  const compatibleCapabilities = state.capabilities.filter((capability) => isAgentNode ? capability.kind === "agent_cli" : isCapabilityNode ? capability.kind !== "agent_cli" : false);
+  const compatibleCapabilities = state.capabilities.filter((capability) => isAgentNode
+    ? capability.kind === "agent_cli"
+    : isModelNode
+      ? capability.kind === "model_cli"
+      : isEvaluationNode
+        ? capability.kind === "evaluator_cli"
+      : isCapabilityNode
+        ? !["agent_cli", "model_cli", "evaluator_cli"].includes(capability.kind)
+        : false);
   const selectedCapabilityId = step.params && step.params.capability_id ? step.params.capability_id : "";
-  const capabilityEditor = (isAgentNode || isCapabilityNode) ? `
+  const capabilityEditor = (isAgentNode || isModelNode || isEvaluationNode || isCapabilityNode) ? `
     <div class="detail-row prompt-detail-row">
-      <span>${isAgentNode ? "Agent 执行者" : "Node 能力"}</span>
+      <span>${isAgentNode ? "Agent 执行者" : isModelNode ? "Model adapter" : isEvaluationNode ? "Evaluator adapter" : "Node 能力"}</span>
       <select id="node-capability-editor" class="node-text-editor">
         ${isAgentNode ? '<option value="">Run 默认 Agent</option>' : '<option value="">请选择已保存能力</option>'}
         ${compatibleCapabilities.map((capability) => `<option value="${escapeHtml(capability.id)}" ${capability.id === selectedCapabilityId ? "selected" : ""}>${escapeHtml(capability.name)} · ${escapeHtml(capability.kind)}</option>`).join("")}
@@ -1178,7 +1323,7 @@ function renderNodeDetail() {
       <span>从此节点后添加</span>
       <div class="mini-node-actions">
         <button type="button" class="ghost-button" data-add-node-after="agent" data-after-step="${escapeHtml(step.id)}">Agent</button>
-        <button type="button" class="ghost-button" data-add-node-after="capability" data-after-step="${escapeHtml(step.id)}">Capability</button>
+        <button type="button" class="ghost-button" data-add-node-after="tool" data-after-step="${escapeHtml(step.id)}">Tool</button>
         <button type="button" class="ghost-button" data-add-node-after="end" data-after-step="${escapeHtml(step.id)}">结束</button>
       </div>
       <small>Local Alpha 先支持一条可真实运行、可恢复的线性链路；分支会在校验阶段明确拒绝。</small>
@@ -1356,63 +1501,66 @@ function renderAiEditResult() {
   `;
 }
 
-async function suggestRunRepair() {
-  if (!state.run) throw new Error("尚未创建 Run");
-  const failedStep = failedRunStep();
-  if (!failedStep) throw new Error("当前 Run 没有失败节点");
-  setNotice("run-message", "正在生成修复候选...");
-  const result = await api(`/api/flows/runs/${encodeURIComponent(state.run.run_id)}/repair-suggest`, {
-    method: "POST",
-    body: JSON.stringify({
-      failed_step_id: failedStep.step_id,
-      template_id: state.selectedTemplateId,
-      user_request: $("user-request").value || null,
-      repair_request: `修复失败节点 ${failedStep.step_id}，优先给出安全降级或局部 Flow patch。`,
-      include_case_retrieval: true,
-    }),
-  });
-  state.repairResult = result;
-  renderRepairResult();
-  const valid = result.candidate_validation && result.candidate_validation.valid;
-  setNotice(
-    "run-message",
-    valid ? "修复候选已生成并通过校验。" : aiPatchSummary(result),
-    valid ? "ok" : result.ai_patch && result.ai_patch.status === "failed" ? "err" : "warn",
-  );
-}
-
 function renderRepairResult() {
   const card = $("repair-card");
   if (!card) return;
   const title = $("repair-title");
   const body = $("repair-body");
   const status = $("repair-status");
-  const suggestButton = $("suggest-repair");
-  const applyButton = $("apply-repair-candidate");
-  const container = $("repair-result");
+  const checkbox = $("fork-confirm-checkbox");
+  const button = $("fork-failed-run");
   const failedStep = failedRunStep();
-  const canSuggest = Boolean(state.run && failedStep);
-  suggestButton.disabled = !canSuggest;
-  if (!state.repairResult) {
-    card.className = "repair-card" + (canSuggest ? " ready" : "");
-    title.textContent = canSuggest ? `失败节点：${failedStep.step_id}` : "等待失败节点";
-    body.textContent = canSuggest ? "可生成候选修复。" : "Run 失败后可生成候选修复。";
-    status.textContent = canSuggest ? "ready" : "idle";
-    status.className = "pill" + (canSuggest ? " warn" : "");
-    applyButton.disabled = true;
-    container.innerHTML = "";
+  const repairStepId = failedStep ? repairStartStepId(failedStep) : null;
+  const evaluationRejected = failedStep && failedStep.error && failedStep.error.code === "EVALUATION_REJECTED";
+  const forked = Boolean(state.run && state.run.parent_run_id);
+  if (forked) {
+    card.className = "repair-card forked";
+    title.textContent = `分叉自：${state.run.parent_run_id}`;
+    body.textContent = `起点 ${state.run.forked_from_node_id || "-"}；复用前缀：${(state.run.reused_node_ids || []).join("、") || "无"}。`;
+    status.textContent = "forked";
+    status.className = "pill ok";
+    checkbox.checked = false;
+    checkbox.disabled = true;
+    button.disabled = true;
     return;
   }
-  const result = state.repairResult;
-  const patch = result.ai_patch || {};
-  const candidateValid = result.candidate_validation && result.candidate_validation.valid;
-  card.className = "repair-card ready";
-  title.textContent = `候选修复：${result.failed_step_id || (failedStep && failedStep.step_id) || "-"}`;
-  body.textContent = patch.rationale || patch.reason || result.explanation || "修复候选已返回。";
-  status.textContent = patch.status || "unknown";
-  status.className = `pill ${pillKind(patch.status)}${candidateValid ? " ok" : ""}`;
-  applyButton.disabled = !candidateValid || !result.candidate_flow_dsl;
-  container.innerHTML = candidateResultHtml(result, "暂无修复候选计划。");
+  const canFork = Boolean(state.run && failedStep);
+  card.className = "repair-card" + (canFork ? " ready" : "");
+  title.textContent = canFork
+    ? evaluationRejected ? `评估未通过：${failedStep.step_id}` : `失败节点：${failedStep.step_id}`
+    : "等待失败节点";
+  body.textContent = canFork
+    ? evaluationRejected
+      ? `${failedStep.error.summary || "Candidate 未满足评估标准。"} 建议从产出节点 ${repairStepId} 创建新 Run，再次生成并重新评估。`
+      : "将创建一个新 Run；原 Run 的证据不会改写，已成功前缀不会再次执行。"
+    : "Run 失败后可从失败节点创建一个新的分叉 Run。";
+  status.textContent = canFork ? "ready" : "idle";
+  status.className = "pill" + (canFork ? " warn" : "");
+  checkbox.disabled = !canFork;
+  if (!canFork) checkbox.checked = false;
+  button.disabled = !canFork || !checkbox.checked;
+  button.textContent = evaluationRejected ? "从产出节点分叉修复" : "从失败节点分叉重跑";
+}
+
+async function forkFailedRun() {
+  if (!state.run) throw new Error("尚未创建 Run");
+  const failedStep = failedRunStep();
+  const repairStepId = failedStep ? repairStartStepId(failedStep) : null;
+  const checkbox = $("fork-confirm-checkbox");
+  if (!failedStep) throw new Error("当前 Run 没有失败节点");
+  if (!checkbox.checked) throw new Error("请先确认分叉重跑的 effects 边界");
+  const parentRunId = state.run.run_id;
+  setNotice("run-message", `正在从节点 ${repairStepId} 创建分叉 Run...`);
+  const admission = await apiWithEffectAuthorization(
+    `/api/v1/runs/${encodeURIComponent(parentRunId)}/forks`,
+    {
+      contract_version: "symphlo.run-fork-request.v1",
+      from_node_id: repairStepId,
+    },
+    "symphlo.authorized-run-fork-request.v1",
+  );
+  await openRunFromHistory(admission.run_id);
+  setNotice("run-message", `已创建分叉 Run：${admission.run_id}；父 Run ${parentRunId} 保持不变。`, "ok");
 }
 
 function candidateResultHtml(result, emptyPlanText) {
@@ -1494,23 +1642,6 @@ function applyAiCandidate() {
   updateDevSummary();
 }
 
-function applyRepairCandidate() {
-  const result = state.repairResult;
-  if (!result || !result.candidate_flow_dsl) throw new Error("当前没有可应用的修复候选 Flow");
-  if (!result.candidate_validation || !result.candidate_validation.valid) throw new Error("修复候选 Flow 未通过校验");
-  state.currentSavedFlowId = null;
-  setFlow(result.candidate_flow_dsl);
-  state.plan = result.candidate_plan;
-  renderPlan(state.plan);
-  renderSavedFlows();
-  renderHub();
-  setNotice("run-message", "修复候选已应用到当前画布和 DSL，保存和再次运行仍需手动确认。", "ok");
-  setNotice("validation-message", "修复候选已应用；如需持久化请点击保存当前 Flow。", "ok");
-  switchPage("flows");
-  switchTab("plan");
-  updateDevSummary();
-}
-
 function aiPatchSummary(result) {
   const patch = result && result.ai_patch ? result.ai_patch : {};
   if (patch.status === "skipped") return patch.reason || "AI patch 当前未启用。";
@@ -1585,7 +1716,10 @@ async function applySelectedNodeEdits() {
   const isSleepNode = step.type === "time.sleep";
   const promptNode = planStepFor(step.id);
   const isAgentNode = promptNode.node_kind === "agent" || step.type === "agent.task";
-  const isCapabilityNode = step.type === "capability.task";
+  const isModelNode = promptNode.node_kind === "model" || promptNode.node_kind === "llm" || step.type === "model.task";
+  const isEvaluationNode = promptNode.node_kind === "evaluation" || step.type === "evaluation.task";
+  const isToolNode = step.type === "tool.task";
+  const isCapabilityNode = isToolNode || step.type === "capability.task";
   let savedMessage = "节点提示词已应用。点击保存当前 Flow 后持久化。";
   if (isRpaNode) {
     const editor = $("local_cli-app-name-editor");
@@ -1631,10 +1765,10 @@ async function applySelectedNodeEdits() {
       ? `Agent节点已归属会话：${groupId}。点击保存当前 Flow 后持久化。`
       : "Agent节点将使用独立会话。点击保存当前 Flow 后持久化。";
   }
-  if (isAgentNode || isCapabilityNode) {
+  if (isAgentNode || isModelNode || isEvaluationNode || isCapabilityNode) {
     const capabilityEditor = $("node-capability-editor");
     const capabilityId = capabilityEditor ? capabilityEditor.value : "";
-    if (isCapabilityNode && !capabilityId) throw new Error("能力节点必须选择一个已保存 Capability");
+    if ((isModelNode || isEvaluationNode || isCapabilityNode) && !capabilityId) throw new Error("该节点必须选择一个已保存 Capability");
     step.params = {...(step.params || {})};
     if (capabilityId) {
       const capability = state.capabilities.find((item) => item.id === capabilityId);
@@ -1726,31 +1860,41 @@ async function createRun() {
   const flow = currentFlow();
   const executor = $("executor-select").value;
   const runSavedFlow = Boolean(state.currentSavedFlowId);
+  if (flowInputSchemaSignature(flow) !== state.flowInputSignature) renderFlowInputs(flow);
   if (!runSavedFlow) {
     syncLegacyInputsFromMaterials();
   }
-  const inputs = {};
-  Object.entries(flow.inputs || {}).forEach(([key, spec]) => {
-    if (spec && Object.prototype.hasOwnProperty.call(spec, "default") && spec.default !== null) {
-      inputs[key] = spec.default;
-    }
-  });
-  if (!runSavedFlow && $("target-url").value) inputs.target_url = $("target-url").value;
-  if (!runSavedFlow && targetUrlsTemplates.has(state.selectedTemplateId)) {
+  const inputs = currentFlowInputValues(flow);
+  if (!runSavedFlow && declaresFlowInput(flow, "target_url") && $("target-url").value) {
+    inputs.target_url = $("target-url").value;
+  }
+  if (!runSavedFlow && declaresFlowInput(flow, "target_urls") && targetUrlsTemplates.has(state.selectedTemplateId)) {
     const targetUrls = parseTargetUrls($("target-urls").value);
     if (targetUrls.length) inputs.target_urls = targetUrls;
   }
-  if (!runSavedFlow && inquiryTextTemplates.has(state.selectedTemplateId) && $("inquiry-text").value) {
+  if (!runSavedFlow && declaresFlowInput(flow, "inquiry_text") && inquiryTextTemplates.has(state.selectedTemplateId) && $("inquiry-text").value) {
     inputs.inquiry_text = $("inquiry-text").value;
   }
-  if (!runSavedFlow && !$("keyword").disabled && $("keyword").value) inputs.keyword = $("keyword").value;
-  if (!runSavedFlow && !$("max-pages").disabled) inputs.max_pages = Number($("max-pages").value || inputs.max_pages || 2);
-  if (!runSavedFlow && reportFocusTemplates.has(state.selectedTemplateId)) inputs.report_focus = $("user-request").value;
+  if (!runSavedFlow && declaresFlowInput(flow, "keyword") && !$("keyword").disabled && $("keyword").value) {
+    inputs.keyword = $("keyword").value;
+  }
+  if (!runSavedFlow && declaresFlowInput(flow, "max_pages") && !$("max-pages").disabled) {
+    inputs.max_pages = Number($("max-pages").value || inputs.max_pages || 2);
+  }
+  if (!runSavedFlow && declaresFlowInput(flow, "report_focus") && reportFocusTemplates.has(state.selectedTemplateId)) {
+    inputs.report_focus = $("user-request").value;
+  }
   setNotice("run-message", `正在由 ${executor} 执行 Flow；结果和 Artifact 会自动写入本地工作区。`, "warn");
   switchPage("runs");
   const result = state.currentSavedFlowId
-    ? await api(`/api/flows/${encodeURIComponent(state.currentSavedFlowId)}/runs`, {method: "POST", body: JSON.stringify({inputs, executor})})
-    : await api("/api/flows/runs", {method: "POST", body: JSON.stringify({flow, inputs, executor})});
+    ? await apiWithEffectAuthorization(
+      `/api/flows/${encodeURIComponent(state.currentSavedFlowId)}/runs`,
+      {inputs, executor},
+    )
+    : await apiWithEffectAuthorization(
+      "/api/flows/runs",
+      {flow, inputs, executor},
+    );
   state.run = result.run;
   state.task = result.next_task;
   state.repairResult = null;
@@ -1879,6 +2023,7 @@ function renderRun() {
   $("mock-failure").disabled = !state.task;
   renderReportSummary();
   renderRepairResult();
+  renderRunComparison();
   const runSteps = $("run-steps");
   runSteps.innerHTML = "";
   if (!state.run || !Array.isArray(state.run.steps)) {
@@ -1939,6 +2084,106 @@ function renderRunHistory() {
   });
 }
 
+function comparisonCandidates() {
+  if (!state.run || !terminalRunStatuses.has(state.run.status)) return [];
+  return (state.runs || []).filter((run) => (
+    run.run_id !== state.run.run_id
+    && terminalRunStatuses.has(run.status)
+    && run.task_id === state.run.task_id
+    && run.flow_hash === state.run.flow_hash
+  ));
+}
+
+function comparisonReasonLabel(reason) {
+  return ({
+    observation: "观察范围",
+    input: "输入",
+    outcome: "结果状态",
+    executor: "执行器",
+    effects: "effects",
+    output: "接受结果",
+    evidence_level: "证据级别",
+    execution_mode: "执行/复用模式",
+  })[reason] || reason;
+}
+
+function renderRunComparison() {
+  const card = $("run-comparison-card");
+  const select = $("run-comparison-target");
+  const button = $("compare-runs");
+  const nodes = $("run-comparison-nodes");
+  const candidates = comparisonCandidates();
+  const candidateIds = new Set(candidates.map((run) => run.run_id));
+  if (!candidateIds.has(state.comparisonTargetRunId)) {
+    state.comparisonTargetRunId = candidates[0]?.run_id || null;
+    state.runComparison = null;
+  }
+  select.innerHTML = "";
+  if (!candidates.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无同版本 terminal Run";
+    select.appendChild(option);
+  } else {
+    candidates.forEach((run) => {
+      const option = document.createElement("option");
+      option.value = run.run_id;
+      option.textContent = `${run.run_id} · ${run.status}`;
+      option.selected = run.run_id === state.comparisonTargetRunId;
+      select.appendChild(option);
+    });
+  }
+  select.disabled = !candidates.length;
+  button.disabled = !state.run || !state.comparisonTargetRunId;
+  nodes.innerHTML = "";
+  card.classList.remove("equivalent", "diverged");
+
+  const report = state.runComparison;
+  if (!report) {
+    $("run-comparison-title").textContent = candidates.length ? "选择对照并比较" : "等待两个可比较 Run";
+    $("run-comparison-status").textContent = "idle";
+    $("run-comparison-body").textContent = candidates.length
+      ? "报告只显示相同性与差异类型，不显示输入、输出、Context 或 payload hash。"
+      : "选择同一 Task、同一 Flow 版本的另一个 terminal Run，定位首个可观察分歧。";
+    return;
+  }
+
+  card.classList.add(report.overall === "equivalent" ? "equivalent" : "diverged");
+  $("run-comparison-status").textContent = report.overall;
+  $("run-comparison-title").textContent = report.first_divergent_node_id
+    ? `首个分歧：${report.first_divergent_node_id}`
+    : "未发现可观察分歧";
+  $("run-comparison-body").textContent = report.first_divergent_node_id
+    ? "这是首个 durable evidence boundary 差异，不代表已自动确定根因。"
+    : `两个 Run 的可观察边界等价；lineage=${report.lineage_relation}。`;
+  (report.nodes || []).forEach((node) => {
+    const row = document.createElement("div");
+    row.className = "run-comparison-node";
+    const reasons = (node.differences || []).map(comparisonReasonLabel).join("、") || "无差异";
+    row.innerHTML = `
+      <strong>${escapeHtml(node.node_id)}</strong>
+      <span>${escapeHtml(node.comparison)} · ${escapeHtml(reasons)}</span>
+    `;
+    nodes.appendChild(row);
+  });
+}
+
+async function compareRuns() {
+  if (!state.run || !state.comparisonTargetRunId) throw new Error("没有可比较的 Run");
+  state.runComparison = await api(
+    `/api/v1/runs/${encodeURIComponent(state.run.run_id)}/comparison`
+    + `?other_run_id=${encodeURIComponent(state.comparisonTargetRunId)}`,
+  );
+  renderRunComparison();
+  setNotice(
+    "run-message",
+    state.runComparison.first_divergent_node_id
+      ? `已定位首个可观察分歧：${state.runComparison.first_divergent_node_id}`
+      : "两个 Run 未发现可观察分歧。",
+    state.runComparison.first_divergent_node_id ? "warn" : "ok",
+  );
+}
+
 async function cancelRunById(runId) {
   if (!runId) throw new Error("尚未创建 Run");
   if (!window.confirm(`停止 Run：${runId}？`)) return;
@@ -1981,6 +2226,8 @@ function closeRunPanel() {
   state.run = null;
   state.task = null;
   state.repairResult = null;
+  state.runComparison = null;
+  state.comparisonTargetRunId = null;
   clearActiveRunId();
   renderRun();
   renderHub();
@@ -2309,6 +2556,10 @@ function failedRunStep() {
   return state.run.steps.find((step) => step.status === "failed") || null;
 }
 
+function repairStartStepId(failedStep) {
+  return failedStep.repair_from_step_id || failedStep.step_id;
+}
+
 function planStepFor(stepId) {
   const steps = state.plan && Array.isArray(state.plan.steps) ? state.plan.steps : [];
   return steps.find((step) => step.step_id === stepId) || {};
@@ -2352,6 +2603,17 @@ function lastStepId(flow) {
 
 function defaultStepForKind(flow, kind, dependencyOverride) {
   const dependency = arguments.length >= 3 ? dependencyOverride : lastStepId(flow);
+  if (kind === "tool") {
+    return {
+      id: nextStepId(flow, "invoke_tool"),
+      type: "tool.task",
+      from: dependency || undefined,
+      params: {title: "Invoke one saved Tool"},
+      prompt: "Invoke the selected Tool once with the accepted upstream Context.",
+      completion_policy: {type: "output_schema"},
+      timeout_seconds: 120,
+    };
+  }
   if (kind === "capability") {
     return {
       id: nextStepId(flow, "invoke_capability"),
@@ -2365,12 +2627,23 @@ function defaultStepForKind(flow, kind, dependencyOverride) {
   }
   if (kind === "llm") {
     return {
-      id: nextStepId(flow, "write_report"),
-      type: "llm.report",
+      id: nextStepId(flow, "model_call"),
+      type: "model.task",
       from: dependency || undefined,
-      params: {report_type: "flow_report"},
-      prompt: "请基于上游节点结果生成一份可读的 Markdown 报告，说明关键发现、边界和下一步建议。",
+      params: {title: "Invoke one saved Model adapter"},
+      prompt: "请基于已接受的上游 Context 完成一次模型推理，并返回本节点的最终文本结果。",
       completion_policy: {type: "output_schema", required_outputs: ["markdown"]},
+      timeout_seconds: 120,
+    };
+  }
+  if (kind === "evaluation") {
+    return {
+      id: nextStepId(flow, "evaluate_candidate"),
+      type: "evaluation.task",
+      from: dependency || undefined,
+      params: {title: "Evaluate the accepted candidate"},
+      prompt: "Evaluate the accepted candidate against the declared task criteria and return one bounded pass/fail decision.",
+      completion_policy: {type: "evaluation_result"},
       timeout_seconds: 120,
     };
   }
@@ -2727,7 +3000,10 @@ async function moveNodeInCurrentFlow(stepId, direction) {
 }
 
 function nodeKindLabel(kind, nodeType = "") {
+  if (nodeType === "tool.task" || kind === "tool") return "Tool 节点";
   if (nodeType === "capability.task" || kind === "capability") return "能力节点";
+  if (nodeType === "model.task" || kind === "model") return "Model 节点";
+  if (nodeType === "evaluation.task" || kind === "evaluation") return "Evaluation 节点";
   if (nodeType === "flow.if") return "判断节点";
   if (kind === "agent") return "Agent节点";
   if (kind === "llm") return "LLM 节点";
@@ -2737,14 +3013,17 @@ function nodeKindLabel(kind, nodeType = "") {
 
 function promptDetailTitle(kind) {
   if (kind === "agent") return "发送给Agent的提示词任务";
-  if (kind === "llm") return "发送给 LLM 的提示词任务";
+  if (kind === "llm" || kind === "model") return "发送给 Model adapter 的一次推理任务";
+  if (kind === "evaluation") return "发送给 Evaluator adapter 的评估标准";
   return "节点任务说明";
 }
 
 function promptRuntimeHint(kind) {
+  if (kind === "tool") return "运行时只执行一次已固定的 CLI、MCP tool 或 HTTP operation，并记录 capability identity、transport、effects 和 accepted result。";
   if (kind === "capability") return "运行时按保存的 Capability 合同执行固定 argv、MCP tool 或 HTTP endpoint，并记录真实证据。";
   if (kind === "agent") return "运行时只把节点提示词转发给Agent；具体工具动作是内部 capability，不作为节点类型暴露。";
-  if (kind === "llm") return "运行时 LLM executor 会注入上游输出、artifact 摘要和报告输出契约。";
+  if (kind === "llm" || kind === "model") return "运行时向已保存的 model_cli 发送一次 versioned inference request；它不是 Agent loop。";
+  if (kind === "evaluation") return "运行时向只读 evaluator_cli 发送 immutable Flow input 与 accepted candidate；fail 会阻断下游，并保留显式修复入口。";
   if (kind === "rpa") return "运行时触发本机第三方 RPA 应用并记录执行状态；业务产物由后续节点显式发现。";
   return "普通节点由内部 executor 执行，提示词用于解释这个节点的业务目的。";
 }
@@ -2953,6 +3232,8 @@ async function guarded(action) {
         discoverButton.disabled = false;
         discoverButton.innerHTML = '<span aria-hidden="true">⌁</span> 重新扫描';
       }
+    } else if (state.activePage === "runs") {
+      setNotice("run-message", error.message || String(error), "err");
     } else {
       setNotice("validation-message", error.message || String(error), "err");
     }
@@ -2975,8 +3256,8 @@ bindClick("run-flow-top", createRun);
 bindClick("refresh-run", async () => refreshRun());
 bindClick("cancel-run", cancelRun);
 bindClick("close-run", closeRunPanel);
-bindClick("suggest-repair", suggestRunRepair);
-bindClick("apply-repair-candidate", async () => applyRepairCandidate());
+bindClick("fork-failed-run", forkFailedRun);
+bindClick("compare-runs", compareRuns);
 bindClick("poll-task", pollTask);
 bindClick("mock-result", submitMockResult);
 bindClick("mock-failure", submitMockFailure);
@@ -2992,6 +3273,14 @@ bindClick("save-capability", async () => saveCapabilityDraft());
 
 const capabilityKindSelect = $("capability-kind");
 if (capabilityKindSelect) capabilityKindSelect.addEventListener("change", syncCapabilityForm);
+const forkConfirmCheckbox = $("fork-confirm-checkbox");
+if (forkConfirmCheckbox) forkConfirmCheckbox.addEventListener("change", renderRepairResult);
+const comparisonTarget = $("run-comparison-target");
+if (comparisonTarget) comparisonTarget.addEventListener("change", (event) => {
+  state.comparisonTargetRunId = event.target.value || null;
+  state.runComparison = null;
+  renderRunComparison();
+});
 const capabilitySearch = $("capability-search");
 if (capabilitySearch) capabilitySearch.addEventListener("input", (event) => {
   state.capabilityQuery = event.target.value || "";

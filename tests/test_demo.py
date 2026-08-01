@@ -5,6 +5,7 @@ import io
 import json
 import re
 import shlex
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -106,6 +107,7 @@ class DemoTests(unittest.TestCase):
                 granularity="balanced",
                 topic="External Process Article",
                 agent_command=command,
+                authorize_write_effects=True,
             )
 
             self.assertEqual(result.executor_profile, "command")
@@ -141,6 +143,25 @@ class DemoTests(unittest.TestCase):
             self.assertNotIn(str(FIXTURE_AGENT), evidence_text)
             self.assertNotIn("private-label", evidence_text)
 
+    def test_command_profile_requires_explicit_write_effect_authorization(self) -> None:
+        command = shlex.join([sys.executable, str(FIXTURE_AGENT)])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "--authorize-write-effects"):
+                run_demo(
+                    root,
+                    root / "state",
+                    agent_command=command,
+                    run_count=1,
+                )
+
+            connection = sqlite3.connect(root / "state" / "evidence.sqlite3")
+            try:
+                run_count = connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            finally:
+                connection.close()
+            self.assertEqual(run_count, 0)
+
     def test_command_profile_supports_all_granularities(self) -> None:
         command = shlex.join([sys.executable, str(FIXTURE_AGENT)])
         with tempfile.TemporaryDirectory() as directory:
@@ -153,6 +174,7 @@ class DemoTests(unittest.TestCase):
                         granularity=granularity,
                         topic=f"E2 {granularity} article",
                         agent_command=command,
+                        authorize_write_effects=True,
                     )
                     self.assertEqual(result.executor_profile, "command")
                     self.assertTrue(result.artifact_path.is_file())
@@ -170,6 +192,7 @@ class DemoTests(unittest.TestCase):
                 root / "state",
                 agent_command=command,
                 run_count=1,
+                authorize_write_effects=True,
             )
             self.assertEqual(len(result.run_ids), 1)
             self.assertEqual(result.comparison["overall"], "single_run")

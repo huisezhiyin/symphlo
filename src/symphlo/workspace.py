@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from typing import Any, cast
 
 from .capabilities import (
     CapabilityCatalog,
+    CapabilityDefinition,
     discover_local_agents,
     normalize_capability,
     probe_record,
@@ -24,8 +26,10 @@ from .capability_executors import executor_for_capability, probe_capability
 from .contracts import Effect, ExecutorRef, FlowDefinition, JsonObject, NodeDefinition
 from .demo import DEFAULT_TOPIC, GRANULARITIES, Granularity, writing_flow
 from .executors import CancellationToken, agent_preset_executor, writing_executors
-from .maintenance import build_stability_report
-from .runtime import ExecutorRegistry, LocalRuntime
+from .maintenance import build_run_comparison, build_stability_report
+from .run_outcomes import build_run_outcome
+from .run_history import RUN_HISTORY_VERSION, build_run_history_item
+from .runtime import ExecutorRegistry, ForkSeed, LocalRuntime
 from .store import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, EvidenceStore
 
 TASK_CATALOG_VERSION = 1
@@ -35,6 +39,18 @@ MAX_GOAL_CHARS = 500
 MAX_TOPIC_CHARS = 280
 HTTP_SAMPLE_ID = "http.sample-json"
 SESSION_FIXTURE_SAMPLE_ID = "agent.session-fixture"
+PACKAGED_SESSION_FIXTURE = (
+    Path(__file__).resolve().parent / "_fixtures" / "stdio_fixture_agent.py"
+)
+FLOW_INPUT_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+RESERVED_FLOW_INPUTS = frozenset(
+    {"goal", "topic", "audience", "granularity", "required_principles", "workspace"}
+)
+MAX_FLOW_INPUT_BYTES = 64 * 1024
+JSON_READ_ATTEMPTS = 5
+JSON_READ_RETRY_SECONDS = 0.01
+JSON_WRITE_ATTEMPTS = 5
+JSON_WRITE_RETRY_SECONDS = 0.01
 
 
 class RunConflictError(RuntimeError):
@@ -51,6 +67,66 @@ class ActiveRun:
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _resolve_flow_inputs(definitions: object, supplied: JsonObject) -> JsonObject:
+    if definitions is None:
+        definitions = {}
+    if not isinstance(definitions, dict):
+        raise ValueError("flow.inputs must be an object")
+    unknown = sorted(set(supplied) - set(definitions))
+    if unknown:
+        raise ValueError(f"undeclared Flow inputs: {', '.join(unknown)}")
+
+    resolved: JsonObject = {}
+    missing = object()
+    for name, raw_spec in definitions.items():
+        if not isinstance(name, str) or not FLOW_INPUT_NAME_PATTERN.fullmatch(name):
+            raise ValueError("Flow input names must match [A-Za-z][A-Za-z0-9_-]{0,63}")
+        if name in RESERVED_FLOW_INPUTS:
+            raise ValueError(f"reserved Flow input name: {name}")
+        if not isinstance(raw_spec, dict):
+            raise ValueError(f"Flow input definition must be an object: {name}")
+        expected_type = raw_spec.get("type", "string")
+        if expected_type not in {"string", "number", "integer", "boolean", "object", "array"}:
+            raise ValueError(f"unsupported Flow input type for {name}: {expected_type}")
+        value = supplied.get(name, raw_spec.get("default", missing))
+        if value is missing or value is None:
+            if raw_spec.get("required") is True:
+                raise ValueError(f"missing required Flow input: {name}")
+            continue
+        if not _flow_input_matches(value, str(expected_type)):
+            raise ValueError(f"Flow input {name} must be {expected_type}")
+        resolved[name] = value
+
+    try:
+        encoded = json.dumps(
+            resolved,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise ValueError("resolved Flow inputs must be finite JSON values") from error
+    if len(encoded) > MAX_FLOW_INPUT_BYTES:
+        raise ValueError(f"resolved Flow inputs exceed {MAX_FLOW_INPUT_BYTES} bytes")
+    return resolved
+
+
+def _flow_input_matches(value: object, expected_type: str) -> bool:
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    if expected_type == "array":
+        return isinstance(value, list)
+    return False
 
 
 def default_state_root(workspace: Path) -> Path:
@@ -70,6 +146,7 @@ class LocalWorkspace:
         self.state_root.mkdir(parents=True, exist_ok=True)
         self.catalog_path = self.state_root / "workspace.json"
         self._lock = threading.Lock()
+        self.mutation_lock = threading.RLock()
         self._run_lock = threading.Lock()
         self._active_run: ActiveRun | None = None
         self.capabilities = CapabilityCatalog(self.state_root)
@@ -133,10 +210,11 @@ class LocalWorkspace:
             "granularity": granularity,
             "created_at": now_iso(),
         }
-        with self._lock:
-            catalog = self._read_catalog()
-            catalog["tasks"].append(task)
-            self._write_catalog(catalog)
+        with self.mutation_lock:
+            with self._lock:
+                catalog = self._read_catalog()
+                catalog["tasks"].append(task)
+                self._write_catalog(catalog)
         return self._task_resource(task)
 
     def update_task(
@@ -152,31 +230,33 @@ class LocalWorkspace:
         topic = self._bounded(topic, "topic", MAX_TOPIC_CHARS)
         if granularity not in GRANULARITIES:
             raise ValueError(f"unsupported granularity: {granularity}")
-        with self._lock:
-            catalog = self._read_catalog()
-            for task in catalog["tasks"]:
-                if task["task_id"] != task_id:
-                    continue
-                task.update(
-                    {
-                        "title": title,
-                        "goal": goal,
-                        "topic": topic,
-                        "granularity": granularity,
-                    }
-                )
-                self._write_catalog(catalog)
-                return self._task_resource(task)
+        with self.mutation_lock:
+            with self._lock:
+                catalog = self._read_catalog()
+                for task in catalog["tasks"]:
+                    if task["task_id"] != task_id:
+                        continue
+                    task.update(
+                        {
+                            "title": title,
+                            "goal": goal,
+                            "topic": topic,
+                            "granularity": granularity,
+                        }
+                    )
+                    self._write_catalog(catalog)
+                    return self._task_resource(task)
         raise KeyError(task_id)
 
     def delete_task(self, task_id: str) -> None:
-        with self._lock:
-            catalog = self._read_catalog()
-            remaining = [task for task in catalog["tasks"] if task["task_id"] != task_id]
-            if len(remaining) == len(catalog["tasks"]):
-                raise KeyError(task_id)
-            catalog["tasks"] = remaining
-            self._write_catalog(catalog)
+        with self.mutation_lock:
+            with self._lock:
+                catalog = self._read_catalog()
+                remaining = [task for task in catalog["tasks"] if task["task_id"] != task_id]
+                if len(remaining) == len(catalog["tasks"]):
+                    raise KeyError(task_id)
+                catalog["tasks"] = remaining
+                self._write_catalog(catalog)
 
     def list_flows(self) -> list[JsonObject]:
         return [task["flow"] for task in self.list_tasks()]
@@ -195,7 +275,8 @@ class LocalWorkspace:
         return result
 
     def save_capability(self, draft: JsonObject) -> JsonObject:
-        return self.capabilities.save(draft).as_dict()
+        with self.mutation_lock:
+            return self.capabilities.save(draft).as_dict()
 
     def install_http_sample(self, origin: str) -> JsonObject:
         capability = self.capabilities.upsert_sample(
@@ -208,6 +289,7 @@ class LocalWorkspace:
                     "Runtime-owned deterministic JSON passthrough for exercising "
                     "the real HTTP Capability boundary."
                 ),
+                "effects": ["read_external"],
                 "timeout_seconds": 30,
                 "config": {
                     "url": f"{origin}/api/v1/samples/http-json",
@@ -225,14 +307,17 @@ class LocalWorkspace:
         return capability.as_dict()
 
     def install_session_fixture_sample(self) -> JsonObject:
-        fixture = (
+        source_fixture = (
             Path(__file__).resolve().parents[2]
             / "examples"
             / "agents"
             / "stdio_fixture_agent.py"
         )
+        fixture = source_fixture if source_fixture.is_file() else PACKAGED_SESSION_FIXTURE
         if not fixture.is_file():
-            raise RuntimeError("session protocol fixture is missing from the public source")
+            raise RuntimeError(
+                "session protocol fixture is missing from the source and installed package"
+            )
         capability = self.capabilities.upsert_sample(
             {
                 "id": SESSION_FIXTURE_SAMPLE_ID,
@@ -243,6 +328,7 @@ class LocalWorkspace:
                     "Runtime-owned fictional deterministic process for exercising "
                     "shared-session evidence; it is not an AI model."
                 ),
+                "effects": ["execute_process"],
                 "timeout_seconds": 30,
                 "config": {
                     "executable": sys.executable,
@@ -267,14 +353,20 @@ class LocalWorkspace:
         return self.capabilities.update_probe(capability_id, probe).as_dict()
 
     def delete_capability(self, capability_id: str) -> None:
-        references = self._capability_references(capability_id)
-        if references:
-            raise ValueError(
-                f"Capability is referenced by saved Flow Nodes: {', '.join(references)}"
-            )
-        self.capabilities.delete(capability_id)
+        with self.mutation_lock:
+            references = self._capability_references(capability_id)
+            if references:
+                raise ValueError(
+                    f"Capability is referenced by saved Flow Nodes: {', '.join(references)}"
+                )
+            self.capabilities.delete(capability_id)
 
-    def run_task(self, task_id: str, executor: str) -> JsonObject:
+    def run_task(
+        self,
+        task_id: str,
+        executor: str,
+        effect_authorization: object = None,
+    ) -> JsonObject:
         if executor not in EXECUTOR_IDS:
             raise ValueError(f"unsupported executor: {executor}")
         if executor != "deterministic" and shutil.which(executor) is None:
@@ -318,10 +410,20 @@ class LocalWorkspace:
             flow_input,
             executor,
             {node.node_id: node.kind for node in definition.nodes},
+            effect_authorization=effect_authorization,
         )
 
-    def validate_console_flow(self, flow: JsonObject, fallback_executor: str = "deterministic") -> FlowDefinition:
-        definition, _registry, _profile = self._compile_console_flow(flow, fallback_executor)
+    def validate_console_flow(
+        self,
+        flow: JsonObject,
+        fallback_executor: str = "deterministic",
+        capability_overrides: dict[str, CapabilityDefinition] | None = None,
+    ) -> FlowDefinition:
+        definition, _registry, _profile = self._compile_console_flow(
+            flow,
+            fallback_executor,
+            capability_overrides,
+        )
         return definition
 
     def run_console_flow(
@@ -330,6 +432,7 @@ class LocalWorkspace:
         flow: JsonObject,
         fallback_executor: str,
         inputs: JsonObject | None = None,
+        effect_authorization: object = None,
     ) -> JsonObject:
         task = self.task(task_id)
         definition, registry, executor_profile = self._compile_console_flow(
@@ -344,6 +447,95 @@ class LocalWorkspace:
             fallback_executor,
             {node.node_id: node.kind for node in definition.nodes},
             executor_profile,
+            effect_authorization=effect_authorization,
+        )
+
+    def fork_console_run(
+        self,
+        parent_run_id: str,
+        from_node_id: str,
+        flow: JsonObject,
+        fallback_executor: str,
+        effect_authorization: object = None,
+    ) -> JsonObject:
+        if not isinstance(from_node_id, str) or not from_node_id.strip():
+            raise ValueError("from_node_id must be a non-empty string")
+        metadata, state_dir = self._find_run(parent_run_id)
+        parent_store = EvidenceStore(state_dir)
+        parent = parent_store.run_evidence(parent_run_id)
+        parent_run = cast(JsonObject, parent["run"])
+        if parent_run["status"] not in TERMINAL_RUN_STATUSES:
+            raise ValueError("only a terminal Run can be forked")
+
+        executor_id = metadata.get("executor_id")
+        if not isinstance(executor_id, str) or executor_id not in EXECUTOR_IDS:
+            raise RuntimeError("parent Run has an invalid executor_id")
+        if executor_id != fallback_executor:
+            raise ValueError("fork executor must match the parent Run")
+        definition, registry, executor_profile = self._compile_console_flow(
+            flow,
+            fallback_executor,
+        )
+        parent_flow_hash = metadata.get("flow_hash")
+        if parent_flow_hash != definition.semantic_hash:
+            raise ValueError("fork requires the exact parent Flow hash")
+
+        node_ids = [node.node_id for node in definition.nodes]
+        target = from_node_id.strip()
+        if target not in node_ids:
+            raise ValueError(f"fork target is not in the Flow: {target}")
+        start_index = node_ids.index(target)
+        source_nodes = {
+            str(node["node_id"]): node
+            for node in cast(list[JsonObject], parent["nodes"])
+        }
+        if not source_nodes:
+            raise ValueError("parent Run has no persisted Flow input")
+        first_source = source_nodes.get(node_ids[0])
+        if first_source is None or not isinstance(first_source.get("input_json"), dict):
+            raise ValueError("parent Run has no persisted Flow input")
+        flow_input = cast(JsonObject, first_source["input_json"])
+
+        reused: list[JsonObject] = []
+        for node in definition.nodes[:start_index]:
+            source = source_nodes.get(node.node_id)
+            if source is None or source.get("status") != "succeeded":
+                raise ValueError(f"fork prefix Node was not succeeded: {node.node_id}")
+            reused.append(source)
+
+        prefix_groups = {
+            node.session_group
+            for node in definition.nodes[:start_index]
+            if node.session_group is not None
+        }
+        remaining_groups = {
+            node.session_group
+            for node in definition.nodes[start_index:]
+            if node.session_group is not None
+        }
+        crossing = sorted(prefix_groups & remaining_groups)
+        if crossing:
+            raise ValueError(
+                "fork cannot cross a session_group boundary: " + ", ".join(crossing)
+            )
+
+        task = self.task(str(metadata["task_id"]))
+        seed = ForkSeed(
+            parent_run_id,
+            str(parent_flow_hash),
+            target,
+            tuple(reused),
+        )
+        return self._admit_run(
+            task,
+            definition,
+            registry,
+            flow_input,
+            executor_id,
+            {node.node_id: node.kind for node in definition.nodes},
+            executor_profile,
+            fork_seed=seed,
+            effect_authorization=effect_authorization,
         )
 
     def cancel_run(self, run_id: str) -> tuple[JsonObject, bool]:
@@ -389,6 +581,8 @@ class LocalWorkspace:
         executor_id: str,
         node_types: dict[str, str],
         executor_profile: str | None = None,
+        fork_seed: ForkSeed | None = None,
+        effect_authorization: object = None,
     ) -> JsonObject:
         with self._run_lock:
             self._assert_no_active_run()
@@ -396,7 +590,12 @@ class LocalWorkspace:
             state_dir = self.state_root / f"run-{sequence:04d}"
             store = EvidenceStore(state_dir)
             runtime = LocalRuntime(store, registry)
-            run_id = runtime.admit(definition)
+            run_id = runtime.admit(
+                definition,
+                flow_input,
+                fork_seed=fork_seed,
+                effect_authorization=effect_authorization,
+            )
             evidence = store.run_evidence(run_id)
             metadata: JsonObject = {
                 "schema_version": 1,
@@ -416,6 +615,16 @@ class LocalWorkspace:
                 "finished_at": None,
                 "status": "running",
             }
+            if fork_seed is not None:
+                metadata.update(
+                    {
+                        "parent_run_id": fork_seed.parent_run_id,
+                        "forked_from_node_id": fork_seed.from_node_id,
+                        "reused_node_ids": [
+                            str(node["node_id"]) for node in fork_seed.reused_nodes
+                        ],
+                    }
+                )
             self._write_run_metadata(state_dir, metadata)
             cancellation = CancellationToken()
             thread = threading.Thread(
@@ -428,6 +637,7 @@ class LocalWorkspace:
                     cancellation,
                     state_dir,
                     metadata,
+                    fork_seed,
                 ),
                 name=f"symphlo-run-{run_id[:8]}",
                 daemon=True,
@@ -445,6 +655,7 @@ class LocalWorkspace:
         cancellation: CancellationToken,
         state_dir: Path,
         metadata: JsonObject,
+        fork_seed: ForkSeed | None,
     ) -> None:
         try:
             runtime.execute(
@@ -453,6 +664,7 @@ class LocalWorkspace:
                 self.workspace,
                 run_id,
                 cancellation,
+                fork_seed=fork_seed,
             )
         except Exception:
             # Runtime failures are already durable and are projected by the API.
@@ -504,7 +716,14 @@ class LocalWorkspace:
             json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        temporary.replace(state_dir / "app-run.json")
+        for attempt in range(JSON_WRITE_ATTEMPTS):
+            try:
+                temporary.replace(state_dir / "app-run.json")
+                return
+            except PermissionError:
+                if attempt == JSON_WRITE_ATTEMPTS - 1:
+                    raise
+                time.sleep(JSON_WRITE_RETRY_SECONDS)
 
     def list_runs(self) -> list[JsonObject]:
         summaries: list[JsonObject] = []
@@ -548,6 +767,8 @@ class LocalWorkspace:
             if metadata.get("task_id") != task_id or metadata.get("flow_hash") != flow_hash:
                 continue
             hash_belongs_to_task = True
+            if metadata.get("parent_run_id") is not None:
+                continue
             raw_order = metadata.get("node_order")
             if not isinstance(raw_order, list) or not all(
                 isinstance(node_id, str) and node_id for node_id in raw_order
@@ -591,6 +812,91 @@ class LocalWorkspace:
             node_order,
             comparable_runs,
         )
+
+    def compare_runs(self, left_run_id: str, right_run_id: str) -> JsonObject:
+        if not isinstance(left_run_id, str) or not left_run_id:
+            raise ValueError("left Run id must be non-empty")
+        if not isinstance(right_run_id, str) or not right_run_id:
+            raise ValueError("other_run_id must be non-empty")
+        if left_run_id == right_run_id:
+            raise ValueError("comparison requires two different Run ids")
+
+        left_metadata, left_state = self._find_run(left_run_id)
+        right_metadata, right_state = self._find_run(right_run_id)
+        left_task = left_metadata.get("task_id")
+        right_task = right_metadata.get("task_id")
+        if not isinstance(left_task, str) or not left_task:
+            raise RuntimeError("left Run metadata has invalid task_id")
+        if not isinstance(right_task, str) or not right_task:
+            raise RuntimeError("right Run metadata has invalid task_id")
+        if left_task != right_task:
+            raise ValueError("Run comparison requires the same task_id")
+
+        left_hash = left_metadata.get("flow_hash")
+        right_hash = right_metadata.get("flow_hash")
+        if not isinstance(left_hash, str) or not isinstance(right_hash, str):
+            raise RuntimeError("Run metadata has invalid flow_hash")
+        if left_hash != right_hash:
+            raise ValueError("Run comparison requires the same Flow hash")
+
+        left_order = left_metadata.get("node_order")
+        right_order = right_metadata.get("node_order")
+        if not isinstance(left_order, list) or not all(
+            isinstance(node_id, str) and node_id for node_id in left_order
+        ):
+            raise RuntimeError("left Run metadata has invalid node_order")
+        if not isinstance(right_order, list) or not all(
+            isinstance(node_id, str) and node_id for node_id in right_order
+        ):
+            raise RuntimeError("right Run metadata has invalid node_order")
+        if left_order != right_order:
+            raise ValueError("Run comparison requires the same ordered Nodes")
+
+        left_evidence = EvidenceStore(left_state).run_evidence(left_run_id)
+        right_evidence = EvidenceStore(right_state).run_evidence(right_run_id)
+        return build_run_comparison(
+            left_task,
+            left_hash,
+            cast(list[str], left_order),
+            self._comparison_evidence(left_metadata, left_evidence),
+            self._comparison_evidence(right_metadata, right_evidence),
+        )
+
+    @staticmethod
+    def _comparison_evidence(metadata: JsonObject, evidence: JsonObject) -> JsonObject:
+        return {
+            **cast(JsonObject, evidence["run"]),
+            "parent_run_id": metadata.get("parent_run_id"),
+            "forked_from_node_id": metadata.get("forked_from_node_id"),
+            "nodes": evidence["nodes"],
+        }
+
+    def run_outcome(self, run_id: str) -> JsonObject:
+        metadata, state_dir = self._find_run(run_id)
+        evidence = EvidenceStore(state_dir).run_evidence(run_id)
+        return build_run_outcome(metadata, evidence)
+
+    def run_history(self, flow_ids: tuple[str, ...], limit: int) -> JsonObject:
+        requested = set(flow_ids)
+        items: list[JsonObject] = []
+        for metadata_path in self.state_root.glob("run-*/app-run.json"):
+            metadata = self._read_json(metadata_path)
+            if metadata.get("flow_id") not in requested:
+                continue
+            run_id = metadata.get("run_id")
+            if not isinstance(run_id, str) or not run_id:
+                raise RuntimeError("Run metadata has invalid run_id")
+            evidence = EvidenceStore(metadata_path.parent).run_evidence(run_id)
+            items.append(build_run_history_item(metadata, evidence))
+        items.sort(
+            key=lambda item: (str(item["started_at"]), str(item["run_id"])),
+            reverse=True,
+        )
+        return {
+            "contract_version": RUN_HISTORY_VERSION,
+            "flow_ids": list(flow_ids),
+            "items": items[:limit],
+        }
 
     def artifact(self, artifact_id: str) -> tuple[Path, str, str]:
         for metadata_path in sorted(self.state_root.glob("run-*/app-run.json"), reverse=True):
@@ -653,6 +959,7 @@ class LocalWorkspace:
         self,
         flow: JsonObject,
         fallback_executor: str,
+        capability_overrides: dict[str, CapabilityDefinition] | None = None,
     ) -> tuple[FlowDefinition, ExecutorRegistry, str]:
         if fallback_executor not in EXECUTOR_IDS:
             raise ValueError(f"unsupported executor: {fallback_executor}")
@@ -697,7 +1004,14 @@ class LocalWorkspace:
         for index, raw_step in enumerate(cast(list[JsonObject], steps)):
             node_id = self._bounded(str(raw_step.get("id", "")), "step.id", 120)
             node_type = str(raw_step.get("type", ""))
-            if node_type not in {"agent.task", "capability.task", "artifact.task"}:
+            if node_type not in {
+                "agent.task",
+                "model.task",
+                "evaluation.task",
+                "tool.task",
+                "capability.task",
+                "artifact.task",
+            }:
                 raise ValueError(f"unsupported Local Alpha Node type: {node_type}")
             dependency = raw_step.get("from")
             if isinstance(dependency, list):
@@ -712,6 +1026,8 @@ class LocalWorkspace:
                         f"saved Flow must be linear: {node_id} must consume {previous_id}"
                     )
                 input_from = previous_id
+            if node_type == "evaluation.task" and input_from is None:
+                raise ValueError("evaluation.task must consume an upstream candidate")
             params = raw_step.get("params")
             params = params if isinstance(params, dict) else {}
             title = self._bounded(
@@ -741,15 +1057,29 @@ class LocalWorkspace:
                 if capability_id is not None:
                     if not isinstance(capability_id, str):
                         raise ValueError(f"capability_id must be a string: {node_id}")
-                    capability = self.capabilities.get(capability_id)
-                    expected_kind = "agent_cli" if node_type == "agent.task" else None
+                    capability = (
+                        capability_overrides.get(capability_id)
+                        if capability_overrides is not None
+                        else None
+                    )
+                    if capability is None:
+                        capability = self.capabilities.get(capability_id)
+                    expected_kind = {
+                        "agent.task": "agent_cli",
+                        "model.task": "model_cli",
+                        "evaluation.task": "evaluator_cli",
+                    }.get(node_type)
                     if expected_kind and capability.kind != expected_kind:
                         raise ValueError(
-                            f"Agent Node requires agent_cli Capability: {capability_id}"
+                            f"{node_type} requires {expected_kind} Capability: {capability_id}"
                         )
-                    if node_type == "capability.task" and capability.kind == "agent_cli":
+                    if node_type in {"tool.task", "capability.task"} and capability.kind in {
+                        "agent_cli",
+                        "model_cli",
+                        "evaluator_cli",
+                    }:
                         raise ValueError(
-                            f"Capability Node cannot bind agent_cli: {capability_id}"
+                            f"{node_type} cannot bind {capability.kind}: {capability_id}"
                         )
                     pinned = params.get("capability_fingerprint")
                     if pinned is not None and pinned != capability.fingerprint:
@@ -761,8 +1091,15 @@ class LocalWorkspace:
                         capability.kind == "agent_cli"
                         and capability.config.get("input_mode") == "session_json"
                     )
-                elif node_type == "capability.task":
-                    raise ValueError(f"Capability Node requires capability_id: {node_id}")
+                elif node_type in {
+                    "tool.task",
+                    "capability.task",
+                    "model.task",
+                    "evaluation.task",
+                }:
+                    raise ValueError(
+                        f"{node_type} requires capability_id: {node_id}"
+                    )
                 elif preset_executor is not None:
                     executor = preset_executor
                 else:
@@ -805,15 +1142,11 @@ class LocalWorkspace:
         inputs: JsonObject,
     ) -> JsonObject:
         topic = str(task["topic"])
-        flow_inputs = flow.get("inputs")
-        if isinstance(flow_inputs, dict):
-            report_focus = flow_inputs.get("report_focus")
-            if isinstance(report_focus, dict) and isinstance(report_focus.get("default"), str):
-                topic = report_focus["default"].strip() or topic
-        supplied = inputs.get("report_focus")
-        if isinstance(supplied, str) and supplied.strip():
-            topic = supplied.strip()
-        return {
+        declared = _resolve_flow_inputs(flow.get("inputs"), inputs)
+        report_focus = declared.pop("report_focus", None)
+        if isinstance(report_focus, str) and report_focus.strip():
+            topic = report_focus.strip()
+        context: JsonObject = {
             "goal": task["goal"],
             "topic": topic,
             "audience": "developers and Agent system designers",
@@ -825,6 +1158,8 @@ class LocalWorkspace:
             ],
             "workspace": self.workspace.name,
         }
+        context.update(declared)
+        return context
 
     def _capability_references(self, capability_id: str) -> list[str]:
         path = self.state_root / "console-flows.json"
@@ -861,7 +1196,16 @@ class LocalWorkspace:
 
     @staticmethod
     def _read_json(path: Path) -> JsonObject:
-        value: Any = json.loads(path.read_text(encoding="utf-8"))
+        raw = ""
+        for attempt in range(JSON_READ_ATTEMPTS):
+            try:
+                raw = path.read_text(encoding="utf-8")
+                break
+            except PermissionError:
+                if attempt == JSON_READ_ATTEMPTS - 1:
+                    raise
+                time.sleep(JSON_READ_RETRY_SECONDS)
+        value: Any = json.loads(raw)
         if not isinstance(value, dict):
             raise RuntimeError(f"expected JSON object: {path.name}")
         return value

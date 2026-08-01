@@ -121,6 +121,8 @@
 }
 
 .kind-agent { border-top: 4px solid #2563eb; }
+.kind-tool { border-top: 4px solid #0f766e; }
+.kind-evaluation { border-top: 4px solid #c2410c; }
 .kind-capability { border-top: 4px solid #7c3aed; }
 .kind-if { border-top: 4px solid #b54708; }
 .kind-sleep { border-top: 4px solid #667085; }

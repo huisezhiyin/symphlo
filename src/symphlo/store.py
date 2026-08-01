@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,8 +35,17 @@ class EvidenceStore:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS flows (
@@ -99,7 +110,7 @@ class EvidenceStore:
 
     def save_flow(self, flow: FlowDefinition) -> None:
         definition_json = canonical_json(flow.as_dict())
-        with self._connect() as connection:
+        with self._connection() as connection:
             existing = connection.execute(
                 "SELECT semantic_hash, definition_json FROM flows WHERE flow_id = ? AND version = ?",
                 (flow.flow_id, flow.version),
@@ -114,7 +125,7 @@ class EvidenceStore:
             )
 
     def start_run(self, run_id: str, flow: FlowDefinition) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 "INSERT INTO runs VALUES (?, ?, ?, ?, 'running', ?, NULL)",
                 (run_id, flow.flow_id, flow.version, flow.semantic_hash, now_iso()),
@@ -122,7 +133,7 @@ class EvidenceStore:
 
     def finish_run(self, run_id: str, status: str) -> bool:
         expected = ("cancel_requested",) if status == "cancelled" else ("running",)
-        with self._connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 f"UPDATE runs SET status = ?, finished_at = ? "
                 f"WHERE run_id = ? AND status IN ({','.join('?' for _ in expected)})",
@@ -131,7 +142,7 @@ class EvidenceStore:
         return cursor.rowcount == 1
 
     def run_status(self, run_id: str) -> str:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT status FROM runs WHERE run_id = ?", (run_id,)
             ).fetchone()
@@ -139,8 +150,31 @@ class EvidenceStore:
             raise KeyError(run_id)
         return str(row["status"])
 
+    def run_admission(self, run_id: str) -> tuple[str, str]:
+        with self._connection() as connection:
+            run = connection.execute(
+                "SELECT semantic_hash FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            event = connection.execute(
+                "SELECT payload_json FROM events "
+                "WHERE run_id = ? AND event_type IN "
+                "('run.effects_evaluated', 'run.effects_authorized') "
+                "ORDER BY sequence LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if run is None:
+            raise KeyError(run_id)
+        if event is None:
+            raise RuntimeError("Run is missing effect admission evidence")
+        payload = json.loads(str(event["payload_json"]))
+        input_hash = payload.get("input_hash")
+        if not isinstance(input_hash, str) or len(input_hash) != 64:
+            raise RuntimeError("Run has invalid effect admission evidence")
+        return str(run["semantic_hash"]), input_hash
+
     def request_cancel(self, run_id: str) -> tuple[str, bool]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT status FROM runs WHERE run_id = ?", (run_id,)
             ).fetchone()
@@ -168,7 +202,7 @@ class EvidenceStore:
         return "cancel_requested", True
 
     def mark_interrupted(self, run_id: str) -> bool:
-        with self._connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 "UPDATE runs SET status = 'failed', finished_at = ? "
                 "WHERE run_id = ? AND status IN ('running', 'cancel_requested')",
@@ -209,7 +243,7 @@ class EvidenceStore:
         return True
 
     def cancel_running_nodes(self, run_id: str) -> list[str]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT node_id FROM node_runs WHERE run_id = ? AND status = 'running' "
                 "ORDER BY rowid",
@@ -224,7 +258,7 @@ class EvidenceStore:
         return node_ids
 
     def fail_running_nodes(self, run_id: str) -> list[str]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT node_id FROM node_runs WHERE run_id = ? AND status = 'running' "
                 "ORDER BY rowid",
@@ -245,7 +279,7 @@ class EvidenceStore:
         payload: JsonObject,
         node_id: str | None = None,
     ) -> int:
-        with self._connect() as connection:
+        with self._connection() as connection:
             return self._record_event_with_connection(
                 connection, run_id, event_type, payload, node_id
             )
@@ -278,7 +312,7 @@ class EvidenceStore:
         effects: list[str],
         value: JsonObject,
     ) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 "INSERT INTO node_runs VALUES (?, ?, ?, ?, ?, NULL, 'running', ?, NULL)",
                 (
@@ -291,6 +325,32 @@ class EvidenceStore:
                 ),
             )
 
+    def reuse_node(
+        self,
+        run_id: str,
+        node_id: str,
+        executor_id: str,
+        executor_version: str,
+        effects: list[str],
+        evidence_level: str,
+        value: JsonObject,
+        output: JsonObject,
+    ) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT INTO node_runs VALUES (?, ?, ?, ?, ?, ?, 'reused', ?, ?)",
+                (
+                    run_id,
+                    node_id,
+                    executor_id,
+                    executor_version,
+                    canonical_json(effects),
+                    evidence_level,
+                    canonical_json(value),
+                    canonical_json(output),
+                ),
+            )
+
     def finish_node(
         self,
         run_id: str,
@@ -298,14 +358,30 @@ class EvidenceStore:
         evidence_level: str,
         output: JsonObject,
     ) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 "UPDATE node_runs SET status = 'succeeded', evidence_level = ?, output_json = ? WHERE run_id = ? AND node_id = ?",
                 (evidence_level, canonical_json(output), run_id, node_id),
             )
 
+    def reject_node(
+        self,
+        run_id: str,
+        node_id: str,
+        evidence_level: str,
+        output: JsonObject,
+    ) -> None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE node_runs SET status = 'failed', evidence_level = ?, output_json = ? "
+                "WHERE run_id = ? AND node_id = ? AND status = 'running'",
+                (evidence_level, canonical_json(output), run_id, node_id),
+            )
+        if cursor.rowcount != 1:
+            raise RuntimeError(f"evaluation Node was not running: {node_id}")
+
     def record_context(self, run_id: str, node_id: str, value: JsonObject) -> int:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM context_entries WHERE run_id = ?",
                 (run_id,),
@@ -327,14 +403,14 @@ class EvidenceStore:
         relative_path: str,
         sha256: str,
     ) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 "INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (artifact_id, run_id, node_id, name, media_type, relative_path, sha256),
             )
 
     def run_evidence(self, run_id: str) -> JsonObject:
-        with self._connect() as connection:
+        with self._connection() as connection:
             run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             if run is None:
                 raise KeyError(run_id)

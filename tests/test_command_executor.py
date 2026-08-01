@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from symphlo.demo import run_demo
@@ -16,6 +17,7 @@ from symphlo.executors import (
     CommandAgentExecutor,
     ExecutionCancelled,
     ExecutionRequest,
+    MarkdownPublicationExecutor,
 )
 
 FIXTURE_AGENT = (
@@ -23,18 +25,86 @@ FIXTURE_AGENT = (
 )
 
 
+def process_is_alive(process_id: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(process_id, 0)
+        except ProcessLookupError:
+            return False
+        return True
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    handle = ctypes.windll.kernel32.OpenProcess(
+        process_query_limited_information,
+        False,
+        process_id,
+    )
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        return bool(
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            and exit_code.value == still_active
+        )
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def command(*arguments: str) -> str:
     return shlex.join([sys.executable, str(FIXTURE_AGENT), *arguments])
 
 
 class CommandExecutorTests(unittest.TestCase):
+    def test_generic_agent_output_can_be_published_as_markdown(self) -> None:
+        root = Path.cwd()
+        executor = object.__new__(CommandAgentExecutor)
+        executor.fingerprint = "test-fingerprint"
+        executor.identity_label = "test-agent"
+        executor.executable_version = None
+        request = ExecutionRequest(
+            "run",
+            "digest-documents",
+            {"topic": "Daily digest", "source_path": "inbox"},
+            root,
+            instruction="Create the document digest.",
+        )
+
+        prompt = executor._prompt(request)
+        accepted = executor._accepted_result(request, "# Digest\n\nReady.", "python")
+        published = MarkdownPublicationExecutor().execute(
+            ExecutionRequest("run", "publish-digest", accepted.output, root)
+        )
+
+        self.assertIn("durable Flow", prompt)
+        self.assertNotIn("durable writing Flow", prompt)
+        self.assertEqual(published.artifact.name, "result.md")
+        self.assertEqual(published.artifact.content, b"# Digest\n\nReady.")
+        model_published = MarkdownPublicationExecutor().execute(
+            ExecutionRequest(
+                "run",
+                "publish-model-output",
+                {"model_output": "# Model result\n\nReady."},
+                root,
+            )
+        )
+        self.assertEqual(model_published.artifact.name, "result.md")
+        self.assertEqual(model_published.artifact.content, b"# Model result\n\nReady.")
+
     def test_nonzero_exit_fails_without_persisting_stderr_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = root / "state"
             with self.assertRaisesRegex(RuntimeError, "exit=7"):
-                run_demo(root, state, agent_command=command("--mode", "fail"))
-            with sqlite3.connect(state / "evidence.sqlite3") as connection:
+                run_demo(
+                    root,
+                    state,
+                    agent_command=command("--mode", "fail"),
+                    authorize_write_effects=True,
+                )
+            with closing(sqlite3.connect(state / "evidence.sqlite3")) as connection:
                 event_text = "\n".join(
                     row[0] for row in connection.execute("SELECT payload_json FROM events")
                 )
@@ -48,6 +118,7 @@ class CommandExecutorTests(unittest.TestCase):
                     root,
                     root / "state",
                     agent_command=command("--mode", "empty"),
+                    authorize_write_effects=True,
                 )
 
     def test_timeout_fails_closed(self) -> None:
@@ -59,6 +130,7 @@ class CommandExecutorTests(unittest.TestCase):
                     root / "state",
                     agent_command=command("--sleep", "2"),
                     agent_timeout=1,
+                    authorize_write_effects=True,
                 )
 
     def test_cancel_terminates_process_group_and_discards_output(self) -> None:
@@ -106,14 +178,10 @@ class CommandExecutorTests(unittest.TestCase):
             self.assertIsInstance(errors[0], ExecutionCancelled)
 
             deadline = time.monotonic() + 3
-            child_alive = True
+            child_alive = process_is_alive(child_pid)
             while child_alive and time.monotonic() < deadline:
-                try:
-                    os.kill(child_pid, 0)
-                except ProcessLookupError:
-                    child_alive = False
-                else:
-                    time.sleep(0.05)
+                time.sleep(0.05)
+                child_alive = process_is_alive(child_pid)
             self.assertFalse(child_alive, f"descendant process still alive: {child_pid}")
 
 

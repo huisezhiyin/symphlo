@@ -73,10 +73,10 @@ class ConsoleCompat:
                 "supported_completion_policies": ["artifact_exists"],
             },
             {
-                "type": "capability.task",
-                "name": "Capability task",
-                "category": "capability",
-                "description": "Invoke one saved CLI, MCP stdio, or HTTP Capability.",
+                "type": "tool.task",
+                "name": "Tool operation",
+                "category": "tool",
+                "description": "Invoke one saved CLI, MCP tool, or HTTP operation.",
                 "executor": "selected Capability",
                 "risk_level": "declared",
                 "supported_completion_policies": ["output_schema"],
@@ -110,39 +110,63 @@ class ConsoleCompat:
     def get_saved(self, task_id: str) -> dict[str, Any]:
         return self._saved(self.workspace.task(task_id), self._read_overrides().get(task_id))
 
+    def resolve_portable_flow(self, portable_flow_id: str) -> dict[str, Any]:
+        """Resolve one installed Flow by its portable DSL id, never by guesswork."""
+
+        matches = [
+            saved
+            for saved in self.list_saved()
+            if isinstance(saved.get("flow"), dict)
+            and saved["flow"].get("id") == portable_flow_id
+        ]
+        if not matches:
+            raise KeyError(portable_flow_id)
+        if len(matches) != 1:
+            raise ValueError(
+                f"portable Flow id is ambiguous in this workspace: {portable_flow_id}"
+            )
+        return matches[0]
+
     def save(self, flow: dict[str, Any], template_id: object = None) -> dict[str, Any]:
-        flow = self._pin_capabilities(flow)
-        granularity = self._granularity(template_id or self._metadata(flow).get("granularity"))
-        topic = self._topic(flow)
-        task = self.workspace.create_task(
-            self._text(flow.get("name"), f"{granularity.title()} writing Flow"),
-            self._text(flow.get("description"), "Produce a durable article through observable Agent handoffs."),
-            topic,
-            granularity,
-        )
-        task_id = str(task["task_id"])
-        self._put_override(task_id, flow)
-        return self.get_saved(task_id)
+        with self.workspace.mutation_lock:
+            flow = self._pin_capabilities(flow)
+            granularity = self._granularity(template_id or self._metadata(flow).get("granularity"))
+            topic = self._topic(flow)
+            task = self.workspace.create_task(
+                self._text(flow.get("name"), f"{granularity.title()} writing Flow"),
+                self._text(flow.get("description"), "Produce a durable article through observable Agent handoffs."),
+                topic,
+                granularity,
+            )
+            task_id = str(task["task_id"])
+            try:
+                self._put_override(task_id, flow)
+            except Exception:
+                self.workspace.delete_task(task_id)
+                raise
+            return self.get_saved(task_id)
 
     def update(self, task_id: str, flow: dict[str, Any], template_id: object = None) -> dict[str, Any]:
-        flow = self._pin_capabilities(flow)
-        granularity = self._granularity(template_id or self._metadata(flow).get("granularity"))
-        self.workspace.update_task(
-            task_id,
-            self._text(flow.get("name"), f"{granularity.title()} writing Flow"),
-            self._text(flow.get("description"), "Produce a durable article through observable Agent handoffs."),
-            self._topic(flow),
-            granularity,
-        )
-        self._put_override(task_id, flow)
-        return self.get_saved(task_id)
+        with self.workspace.mutation_lock:
+            flow = self._pin_capabilities(flow)
+            granularity = self._granularity(template_id or self._metadata(flow).get("granularity"))
+            self.workspace.update_task(
+                task_id,
+                self._text(flow.get("name"), f"{granularity.title()} writing Flow"),
+                self._text(flow.get("description"), "Produce a durable article through observable Agent handoffs."),
+                self._topic(flow),
+                granularity,
+            )
+            self._put_override(task_id, flow)
+            return self.get_saved(task_id)
 
     def delete(self, task_id: str) -> None:
-        self.workspace.delete_task(task_id)
-        with self._lock:
-            value = self._read_store()
-            value["flows"].pop(task_id, None)
-            self._write_store(value)
+        with self.workspace.mutation_lock:
+            self.workspace.delete_task(task_id)
+            with self._lock:
+                value = self._read_store()
+                value["flows"].pop(task_id, None)
+                self._write_store(value)
 
     def validate(self, flow: object) -> dict[str, Any]:
         try:
@@ -170,9 +194,25 @@ class ConsoleCompat:
                     "step_id": step.get("id"),
                     "title": step.get("params", {}).get("title") or step.get("prompt") or step.get("id"),
                     "node_type": node_type,
-                    "node_kind": "agent" if node_type == "agent.task" else "capability" if node_type == "capability.task" else "normal",
+                    "node_kind": (
+                        "agent"
+                        if node_type == "agent.task"
+                        else "model"
+                        if node_type == "model.task"
+                        else "evaluation"
+                        if node_type == "evaluation.task"
+                        else "tool"
+                        if node_type == "tool.task"
+                        else "capability"
+                        if node_type == "capability.task"
+                        else "normal"
+                    ),
                     "executor": step.get("params", {}).get("capability_id") or step.get("params", {}).get("executor_id", "Symphlo Runtime"),
-                    "completion": "accepted result" if node_type == "agent.task" else "article.md Artifact",
+                    "completion": (
+                        "article.md Artifact"
+                        if node_type == "artifact.task"
+                        else "accepted result"
+                    ),
                     "blocking": True,
                     "risk_level": "low",
                     "stage": "outer Agent loop",
@@ -200,15 +240,37 @@ class ConsoleCompat:
         _summary, accepted = self.workspace.cancel_run(run_id)
         return self.run(run_id), accepted
 
+    def fork(
+        self,
+        run_id: str,
+        from_node_id: str,
+        effect_authorization: object = None,
+    ) -> dict[str, Any]:
+        parent = cast(dict[str, Any], self.workspace.run_evidence(run_id)["run"])
+        saved = self.get_saved(str(parent["task_id"]))
+        executor = parent.get("executor_id")
+        if not isinstance(executor, str):
+            raise RuntimeError("parent Run has an invalid executor_id")
+        summary = self.workspace.fork_console_run(
+            run_id,
+            from_node_id,
+            cast(dict[str, Any], saved["flow"]),
+            executor,
+            effect_authorization,
+        )
+        return self.run(str(summary["run_id"]))
+
     def run_saved(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         executor = self._executor(payload.get("executor"))
         saved = self.get_saved(task_id)
         inputs = payload.get("inputs")
+        effect_authorization = payload.get("effect_authorization")
         summary = self.workspace.run_console_flow(
             task_id,
             cast(dict[str, Any], saved["flow"]),
             executor,
             cast(dict[str, Any], inputs) if isinstance(inputs, dict) else {},
+            effect_authorization,
         )
         return {"run": self.run(str(summary["run_id"])), "next_task": None}
 
@@ -373,7 +435,19 @@ class ConsoleCompat:
             steps.append(
                 {
                     "id": node["node_id"],
-                    "type": "artifact.task" if kind == "artifact.task" else "agent.task",
+                    "type": (
+                        kind
+                        if kind
+                        in {
+                            "agent.task",
+                            "model.task",
+                            "evaluation.task",
+                            "tool.task",
+                            "capability.task",
+                            "artifact.task",
+                        }
+                        else "agent.task"
+                    ),
                     "from": node.get("input_from"),
                     "params": {
                         "title": node["title"],
@@ -402,14 +476,22 @@ class ConsoleCompat:
         summary = cast(dict[str, Any], evidence["run"])
         session_by_node: dict[str, dict[str, Any]] = {}
         session_state: dict[str, dict[str, Any]] = {}
+        evaluation_rejections: dict[str, dict[str, Any]] = {}
         for event in cast(list[dict[str, Any]], evidence["events"]):
+            node_id = event.get("node_id")
+            payload = event.get("payload_json")
+            if (
+                event.get("event_type") == "evaluation.rejected"
+                and isinstance(node_id, str)
+                and isinstance(payload, dict)
+            ):
+                evaluation_rejections[node_id] = payload
+                continue
             if event.get("event_type") not in {
                 "executor.session.bound",
                 "executor.session.reused",
             }:
                 continue
-            node_id = event.get("node_id")
-            payload = event.get("payload_json")
             if not isinstance(node_id, str) or not isinstance(payload, dict):
                 continue
             group = payload.get("session_group")
@@ -466,17 +548,37 @@ class ConsoleCompat:
             node_types = summary.get("node_types")
             node_type = node_types.get(node_id) if isinstance(node_types, dict) else None
             status = str(node["status"]) if node is not None else ("skipped" if terminal else "pending")
+            rejection = evaluation_rejections.get(node_id)
             steps.append(
                 {
                     "run_id": summary["run_id"],
                     "step_id": node_id,
                     "node_type": node_type or ("artifact.task" if node_id == "publish-article" else "agent.task"),
                     "status": status,
-                    "attempts": 1 if node is not None else 0,
+                    "attempts": (
+                        0
+                        if status == "reused"
+                        else 1 if node is not None else 0
+                    ),
                     "output": node["output_json"] if node is not None else None,
                     "artifacts": artifacts_by_node.get(node_id, []),
                     "logs": [],
-                    "error": {"code": "NODE_FAILED"} if status == "failed" else None,
+                    "error": (
+                        {
+                            "code": "EVALUATION_REJECTED",
+                            "summary": rejection.get("summary"),
+                            "finding_codes": rejection.get("finding_codes", []),
+                        }
+                        if rejection is not None
+                        else {"code": "NODE_FAILED"}
+                        if status == "failed"
+                        else None
+                    ),
+                    "repair_from_step_id": (
+                        rejection.get("repair_from_node_id")
+                        if rejection is not None
+                        else None
+                    ),
                     "session": session_by_node.get(node_id),
                     "updated_at": summary["finished_at"] or summary["started_at"],
                 }
@@ -484,7 +586,12 @@ class ConsoleCompat:
         return {
             "run_id": summary["run_id"],
             "flow_id": summary["flow_id"],
+            "task_id": summary["task_id"],
+            "flow_hash": summary["flow_hash"],
             "status": summary["status"],
+            "parent_run_id": summary.get("parent_run_id"),
+            "forked_from_node_id": summary.get("forked_from_node_id"),
+            "reused_node_ids": summary.get("reused_node_ids") or [],
             "mode": "semi_auto",
             "inputs": {"report_focus": summary["topic"]},
             "steps": steps,

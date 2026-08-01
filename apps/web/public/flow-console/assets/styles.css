@@ -1429,6 +1429,7 @@ input:focus, textarea:focus, select:focus {
 
 .run-surface {
   gap: 0;
+  overflow-y: auto;
 }
 
 .run-summary {
@@ -1457,6 +1458,47 @@ input:focus, textarea:focus, select:focus {
   color: var(--ink);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.flow-run-inputs {
+  margin: 0 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff, #fafcff);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.flow-run-inputs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.flow-run-inputs-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.flow-run-inputs-head > small {
+  max-width: 320px;
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.flow-input-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-input-field textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .report-card {
@@ -1518,6 +1560,11 @@ input:focus, textarea:focus, select:focus {
   background: linear-gradient(180deg, #fff, #fffcf5);
 }
 
+.repair-card.forked {
+  border-color: #abefc6;
+  background: linear-gradient(180deg, #fff, #f6fef9);
+}
+
 .repair-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1545,8 +1592,89 @@ input:focus, textarea:focus, select:focus {
   padding: 0;
 }
 
+.fork-confirm {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fork-confirm input {
+  margin-top: 2px;
+}
+
 .repair-card .ai-edit-result:empty {
   display: none;
+}
+
+.run-comparison-card {
+  margin: 0 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 11px;
+  display: grid;
+  gap: 9px;
+}
+
+.run-comparison-card.equivalent {
+  border-color: #abefc6;
+  background: linear-gradient(180deg, #fff, #f6fef9);
+}
+
+.run-comparison-card.diverged {
+  border-color: #fedf89;
+  background: linear-gradient(180deg, #fff, #fffcf5);
+}
+
+.run-comparison-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.run-comparison-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.run-comparison-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.run-comparison-controls select,
+.run-comparison-controls button {
+  min-height: 34px;
+}
+
+.run-comparison-nodes {
+  display: grid;
+  gap: 6px;
+}
+
+.run-comparison-node {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.run-comparison-node strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .command {
@@ -1849,6 +1977,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .run-step.succeeded { border-left: 4px solid var(--teal); }
+.run-step.reused { border-left: 4px solid var(--blue); }
 .run-step.running { border-left: 4px solid var(--amber); }
 .run-step.failed,
 .run-step.cancelled { border-left: 4px solid var(--red); }
@@ -2105,6 +2234,16 @@ input:focus, textarea:focus, select:focus {
   }
   .hub-page-grid {
     grid-template-rows: none;
+  }
+  #page-runs {
+    overflow-y: auto;
+  }
+  #page-runs .run-page-grid {
+    grid-auto-rows: max-content;
+    align-content: start;
+  }
+  #page-runs .run-surface {
+    overflow-y: visible;
   }
 }
 
@@ -2724,6 +2863,9 @@ input:focus, textarea:focus, select:focus {
 }
 
 @media (max-width: 760px) {
+  .flow-input-fields { grid-template-columns: 1fr; }
+  .flow-run-inputs-head { flex-direction: column; }
+  .flow-run-inputs-head > small { max-width: none; text-align: left; }
   .capability-shell { padding: 0 0 20px; }
   .capability-hero { align-items: flex-start; flex-direction: column; gap: 16px; }
   .capability-hero-actions { width: 100%; }

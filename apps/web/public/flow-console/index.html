@@ -313,7 +313,7 @@
                 <div class="canvas-actions">
                   <span class="pill" id="flow-status">draft</span>
                   <button class="ghost-button" data-add-node="agent">加Agent节点</button>
-                  <button class="ghost-button" data-add-node="capability">加能力节点</button>
+                  <button class="ghost-button" data-add-node="tool">加Tool节点</button>
                   <button class="ghost-button" data-add-node="end">加结束节点</button>
                   <button id="delete-selected-node" class="danger-button">删除节点</button>
                   <button id="validate-flow" class="ghost-button">校验</button>
@@ -430,7 +430,7 @@
               <div class="capability-hero-copy">
                 <span class="section-kicker">Local Capability Library</span>
                 <h2>让本地工具成为可观察的 Node</h2>
-                <p>连接 Agent CLI、JSON CLI、MCP 或 HTTP。每个能力先验证、再绑定，执行结果进入同一条 Run 证据链。</p>
+                <p>连接 Agent、Model、Evaluator、JSON CLI、MCP 或 HTTP。每个能力先验证、再绑定，执行结果进入同一条 Run 证据链。</p>
               </div>
               <div class="capability-hero-actions">
                 <button id="discover-capabilities" class="ghost-button"><span aria-hidden="true">⌁</span> 扫描本机</button>
@@ -441,7 +441,7 @@
             <div class="capability-overview" aria-label="Capability summary">
               <div class="capability-metric"><span>已连接</span><strong id="capability-connected-count">0</strong><small>可直接绑定到 Node</small></div>
               <div class="capability-metric"><span>待连接</span><strong id="capability-available-count">0</strong><small>扫描发现，尚未保存</small></div>
-              <div class="capability-protocols"><span>支持的协议</span><div><b>Agent CLI</b><b>JSON CLI</b><b>MCP stdio</b><b>HTTP</b></div></div>
+              <div class="capability-protocols"><span>支持的协议</span><div><b>Agent CLI</b><b>Model CLI</b><b>Evaluator CLI</b><b>MCP / HTTP</b></div></div>
             </div>
 
             <section class="surface capability-library">
@@ -459,6 +459,8 @@
                 <div class="capability-filters" aria-label="能力筛选">
                   <button class="capability-filter active" data-capability-filter="all">全部</button>
                   <button class="capability-filter" data-capability-filter="agent_cli">Agent</button>
+                  <button class="capability-filter" data-capability-filter="model_cli">Model</button>
+                  <button class="capability-filter" data-capability-filter="evaluator_cli">Evaluator</button>
                   <button class="capability-filter" data-capability-filter="tools">Tools</button>
                 </div>
                 <span id="capability-scan-message" class="capability-scan-message">扫描只读取受支持 CLI 的路径和版本，不会自动保存。</span>
@@ -479,7 +481,7 @@
             </div>
             <div class="capability-drawer-body">
               <div class="form-stack capability-form">
-                <label class="field"><span>Kind</span><select id="capability-kind"><option value="agent_cli">Agent CLI</option><option value="cli">JSON CLI</option><option value="mcp_stdio">MCP stdio</option><option value="http">HTTP</option></select></label>
+                <label class="field"><span>Kind</span><select id="capability-kind"><option value="agent_cli">Agent CLI</option><option value="model_cli">Model CLI</option><option value="evaluator_cli">Evaluator CLI</option><option value="cli">JSON CLI</option><option value="mcp_stdio">MCP stdio</option><option value="http">HTTP</option></select></label>
                 <div class="split-fields">
                   <label class="field"><span>ID</span><input id="capability-id" placeholder="cli.my-tool" /></label>
                   <label class="field"><span>Name</span><input id="capability-name" placeholder="My local capability" /></label>
@@ -544,6 +546,17 @@
                 <strong id="next-task">-</strong>
               </div>
             </div>
+            <div class="flow-run-inputs" id="flow-run-inputs">
+              <div class="flow-run-inputs-head">
+                <div>
+                  <span class="section-kicker">Inputs</span>
+                  <strong>本次运行输入</strong>
+                </div>
+                <small>字段由当前 Flow 声明自动生成，运行前只提交已校验的值。</small>
+              </div>
+              <div class="notice" id="flow-inputs-empty">选择或创建 Flow 后，这里会生成本次运行需要填写的字段。</div>
+              <div class="flow-input-fields" id="flow-input-fields"></div>
+            </div>
             <div class="report-card waiting" id="report-card">
               <div>
                 <span class="section-kicker">Report</span>
@@ -555,17 +568,37 @@
             <div class="repair-card" id="repair-card">
               <div class="repair-head">
                 <div>
-                  <span class="section-kicker">Repair</span>
+                  <span class="section-kicker">Fork &amp; Retry</span>
                   <strong id="repair-title">等待失败节点</strong>
                 </div>
                 <span class="pill" id="repair-status">idle</span>
               </div>
-              <p id="repair-body">Run 失败后可生成候选修复。</p>
+              <p id="repair-body">Run 失败后可从失败节点重跑；Evaluation 未通过时会建议从被评估的产出节点修复。</p>
+              <label class="fork-confirm" id="fork-confirm-label">
+                <input id="fork-confirm-checkbox" type="checkbox" disabled>
+                <span>我理解原 Run 保持不变；已接受前缀会被复用，失败节点与后续 effects 会再次执行。</span>
+              </label>
               <div class="button-row repair-actions">
-                <button id="suggest-repair" disabled>生成修复</button>
-                <button id="apply-repair-candidate" disabled>应用候选</button>
+                <button id="fork-failed-run" disabled>从失败节点分叉重跑</button>
               </div>
-              <div id="repair-result" class="ai-edit-result"></div>
+            </div>
+            <div class="run-comparison-card" id="run-comparison-card">
+              <div class="repair-head">
+                <div>
+                  <span class="section-kicker">Run Comparison</span>
+                  <strong id="run-comparison-title">等待两个可比较 Run</strong>
+                </div>
+                <span class="pill" id="run-comparison-status">idle</span>
+              </div>
+              <p id="run-comparison-body">选择同一 Task、同一 Flow 版本的另一个 terminal Run，定位首个可观察分歧。</p>
+              <div class="run-comparison-controls">
+                <label>
+                  <span>对照 Run</span>
+                  <select id="run-comparison-target" disabled></select>
+                </label>
+                <button id="compare-runs" disabled>比较运行证据</button>
+              </div>
+              <div class="run-comparison-nodes" id="run-comparison-nodes"></div>
             </div>
             <div class="command" id="runtime-command">Desktop owns the Local Runtime and invokes the selected Agent CLI.</div>
             <div class="runtime-hint" id="runtime-llm-hint"></div>

@@ -60,6 +60,8 @@ class NodeDefinition:
             raise ValueError("node id, title and kind must be non-empty")
         if len(set(self.effects)) != len(self.effects):
             raise ValueError(f"node {self.node_id} declares duplicate effects")
+        if self.kind == "evaluation.task" and self.input_from is None:
+            raise ValueError("evaluation.task must consume an upstream candidate")
         if self.session_group is not None and not SESSION_GROUP_PATTERN.fullmatch(
             self.session_group
         ):
@@ -133,11 +135,65 @@ class ArtifactPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class EvaluationFinding:
+    code: str
+    message: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.code, str) or not isinstance(self.message, str):
+            raise ValueError("evaluation finding code and message must be strings")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", self.code):
+            raise ValueError("evaluation finding code must match [a-z0-9][a-z0-9_.-]{0,63}")
+        if not self.message.strip() or len(self.message) > 500:
+            raise ValueError("evaluation finding message must be between 1 and 500 characters")
+
+    def as_dict(self) -> JsonObject:
+        return {"code": self.code, "message": self.message}
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationDecision:
+    verdict: str
+    summary: str
+    findings: tuple[EvaluationFinding, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.verdict, str) or self.verdict not in {"pass", "fail"}:
+            raise ValueError("evaluation verdict must be pass or fail")
+        if not isinstance(self.summary, str):
+            raise ValueError("evaluation summary must be a string")
+        if not self.summary.strip() or len(self.summary) > 500:
+            raise ValueError("evaluation summary must be between 1 and 500 characters")
+        if not isinstance(self.findings, tuple) or not all(
+            isinstance(finding, EvaluationFinding) for finding in self.findings
+        ):
+            raise ValueError("evaluation findings must be EvaluationFinding values")
+        if len(self.findings) > 16:
+            raise ValueError("evaluation findings must contain at most 16 items")
+        codes = [finding.code for finding in self.findings]
+        if len(codes) != len(set(codes)):
+            raise ValueError("evaluation finding codes must be unique")
+        if self.verdict == "pass" and self.findings:
+            raise ValueError("passing evaluation must not contain findings")
+        if self.verdict == "fail" and not self.findings:
+            raise ValueError("failing evaluation must contain at least one finding")
+
+    def as_dict(self) -> JsonObject:
+        return {
+            "contract_version": "symphlo.evaluation-result.v1",
+            "verdict": self.verdict,
+            "summary": self.summary,
+            "findings": [finding.as_dict() for finding in self.findings],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionResult:
     output: JsonObject
     evidence_level: EvidenceLevel
     artifact: ArtifactPayload | None = None
     session: ExecutorSessionEvidence | None = None
+    evaluation: EvaluationDecision | None = None
 
 
 @dataclass(frozen=True, slots=True)

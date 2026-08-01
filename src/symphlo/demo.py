@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from .contracts import Effect, ExecutorRef, FlowDefinition, JsonObject, NodeDefinition, canonical_hash
+from .effect_authorization import effect_authorization_challenge
 from .evidence_app import render_evidence_app
 from .executors import (
     CommandAgentExecutor,
@@ -184,6 +185,7 @@ def run_demo(
     agent_model: str | None = None,
     agent_timeout: int = 120,
     run_count: int = 2,
+    authorize_write_effects: bool = False,
 ) -> DemoResult:
     workspace = workspace.resolve(strict=True)
     if granularity not in GRANULARITIES:
@@ -230,7 +232,28 @@ def run_demo(
         "workspace": workspace.name,
     }
 
-    run_ids = tuple(runtime.run(flow, flow_input, workspace) for _ in range(run_count))
+    challenge = effect_authorization_challenge(flow, flow_input)
+    effect_authorization = None
+    if challenge["effects"]:
+        if not authorize_write_effects:
+            effect_names = ", ".join(
+                str(item["effect"]) for item in challenge["effects"]
+            )
+            raise RuntimeError(
+                "demo executor declares approval-required effects "
+                f"({effect_names}); rerun with --authorize-write-effects after review"
+            )
+        effect_authorization = challenge["authorization"]
+
+    run_ids = tuple(
+        runtime.run(
+            flow,
+            flow_input,
+            workspace,
+            effect_authorization=effect_authorization,
+        )
+        for _ in range(run_count)
+    )
     evidence = tuple(store.run_evidence(run_id) for run_id in run_ids)
     comparison = (
         compare_runs(flow, evidence[0], evidence[1])

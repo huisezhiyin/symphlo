@@ -43,6 +43,11 @@ def parser() -> argparse.ArgumentParser:
     demo.add_argument("--agent-model", help="Model override for Agent presets that support it.")
     demo.add_argument("--agent-timeout", type=int, default=120)
     demo.add_argument("--runs", type=int, choices=(1, 2), default=2)
+    demo.add_argument(
+        "--authorize-write-effects",
+        action="store_true",
+        help="Authorize the exact demo Flow/input write effects for this invocation.",
+    )
     demo.add_argument("--open", action="store_true", dest="open_report")
     return root
 
@@ -88,6 +93,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             agent_model=options.agent_model,
             agent_timeout=options.agent_timeout,
             run_count=options.runs,
+            authorize_write_effects=options.authorize_write_effects,
         )
     except (ValueError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)

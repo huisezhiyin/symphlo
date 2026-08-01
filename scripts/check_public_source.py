@@ -25,6 +25,7 @@ REQUIRED_FILES = (
     "README.md",
     "THIRD_PARTY.md",
     "SECURITY.md",
+    "setup.py",
     "CONTRIBUTING.md",
 )
 REQUIRED_DIRECTORIES = (

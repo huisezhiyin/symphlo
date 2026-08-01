@@ -105,8 +105,12 @@ def session_main(arguments: argparse.Namespace) -> int:
         raise SystemExit(143)
 
     signal.signal(signal.SIGTERM, abort)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, abort)
     if arguments.sleep:
-        time.sleep(arguments.sleep)
+        deadline = time.monotonic() + arguments.sleep
+        while time.monotonic() < deadline:
+            time.sleep(min(0.05, deadline - time.monotonic()))
     print(
         json.dumps(
             {

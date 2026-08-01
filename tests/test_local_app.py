@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -9,8 +10,15 @@ import unittest
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from unittest.mock import patch
 
-from symphlo.local_app import create_local_app
+from symphlo.local_app import (
+    RUN_AUTHORIZED_REQUEST_VERSION,
+    RUN_FORK_ADMISSION_VERSION,
+    RUN_FORK_AUTHORIZED_REQUEST_VERSION,
+    RUN_FORK_REQUEST_VERSION,
+    create_local_app,
+)
 
 
 def request_json(url: str, value: dict[str, object] | None = None) -> tuple[int, dict]:
@@ -24,6 +32,25 @@ def request_json(url: str, value: dict[str, object] | None = None) -> tuple[int,
         )
     with urlopen(request, timeout=15) as response:
         return response.status, json.loads(response.read())
+
+
+def request_json_with_confirmed_effects(
+    url: str,
+    value: dict[str, object],
+    authorized_contract_version: str | None = None,
+) -> tuple[int, dict]:
+    """Test helper: explicitly accept the exact 428 scope, then retry once."""
+
+    try:
+        return request_json(url, value)
+    except HTTPError as error:
+        if error.code != 428:
+            raise
+        challenge = json.loads(error.read())
+    authorized = {**value, "effect_authorization": challenge["authorization"]}
+    if authorized_contract_version is not None:
+        authorized["contract_version"] = authorized_contract_version
+    return request_json(url, authorized)
 
 
 def wait_for_json(
@@ -113,6 +140,214 @@ class LocalAppTests(unittest.TestCase):
         with urlopen(f"{self.base}{evidence['artifacts'][0]['content_url']}", timeout=5) as response:
             article = response.read().decode("utf-8")
         self.assertIn("# Why a useful App needs a real Runtime", article)
+
+    def test_versioned_run_fork_reuses_prefix_and_reexecutes_failed_node(self) -> None:
+        counter = self.root / "flaky-count.txt"
+        fixture = self.root / "fail-once-json-cli.py"
+        fixture.write_text(
+            """from __future__ import annotations
+import json
+import sys
+from pathlib import Path
+
+counter = Path(sys.argv[1])
+count = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
+counter.write_text(str(count), encoding="utf-8")
+request = json.load(sys.stdin)
+if count == 1:
+    print("intentional first-call failure", file=sys.stderr)
+    raise SystemExit(9)
+context = request["context"]
+json.dump({
+    "fixture": "fail_once",
+    "article_markdown": context["article_markdown"],
+    "topic": context.get("topic"),
+    "granularity": context.get("granularity"),
+    "stage_hash": context.get("stage_hash"),
+}, sys.stdout, sort_keys=True)
+sys.stdout.write("\\n")
+""",
+            encoding="utf-8",
+        )
+        _, capability = request_json(
+            f"{self.base}/api/v1/capabilities",
+            {
+                "capability": {
+                    "id": "cli.fail-once-fork-fixture",
+                    "name": "Fail-once fork fixture",
+                    "kind": "cli",
+                    "config": {
+                        "executable": sys.executable,
+                        "args": [str(fixture), str(counter)],
+                    },
+                }
+            },
+        )
+        _, drafted = request_json(
+            f"{self.base}/api/flows/draft",
+            {"template_id": "compact", "report_focus": "Fork a failed Node"},
+        )
+        flow = drafted["flow_dsl"]
+        publisher = flow["steps"].pop()
+        flow["steps"].append(
+            {
+                "id": "invoke-flaky-json-cli",
+                "type": "capability.task",
+                "from": "write-article",
+                "params": {
+                    "title": "Invoke fail-once CLI",
+                    "capability_id": capability["id"],
+                },
+                "prompt": "Pass the accepted draft through a failure boundary.",
+                "completion_policy": {"type": "output_schema"},
+            }
+        )
+        publisher["from"] = "invoke-flaky-json-cli"
+        flow["steps"].append(publisher)
+        _, saved = request_json(
+            f"{self.base}/api/flows",
+            {"template_id": "compact", "flow": flow},
+        )
+        _, admitted = request_json_with_confirmed_effects(
+            f"{self.base}/api/flows/{saved['flow_id']}/runs",
+            {"inputs": {}, "executor": "deterministic"},
+        )
+        parent = wait_for_json(
+            f"{self.base}/api/flows/runs/{admitted['run']['run_id']}"
+        )
+        self.assertEqual(parent["status"], "failed")
+        parent_id = parent["run_id"]
+        _, parent_before = request_json(
+            f"{self.base}/api/v1/runs/{parent_id}/evidence"
+        )
+
+        invalid_prefix = Request(
+            f"{self.base}/api/v1/runs/{parent_id}/forks",
+            data=json.dumps(
+                {
+                    "contract_version": RUN_FORK_REQUEST_VERSION,
+                    "from_node_id": "publish-article",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as invalid_prefix_error:
+            urlopen(invalid_prefix, timeout=5)
+        self.assertEqual(invalid_prefix_error.exception.code, 400)
+        self.assertIn(
+            "prefix Node was not succeeded",
+            json.loads(invalid_prefix_error.exception.read())["error"],
+        )
+        _, runs_before_fork = request_json(f"{self.base}/api/v1/runs")
+        self.assertEqual(len(runs_before_fork["items"]), 1)
+
+        fork_code, fork = request_json_with_confirmed_effects(
+            f"{self.base}/api/v1/runs/{parent_id}/forks",
+            {
+                "contract_version": RUN_FORK_REQUEST_VERSION,
+                "from_node_id": "invoke-flaky-json-cli",
+            },
+            RUN_FORK_AUTHORIZED_REQUEST_VERSION,
+        )
+        child = wait_for_json(f"{self.base}/api/flows/runs/{fork['run_id']}")
+        _, child_evidence = request_json(
+            f"{self.base}/api/v1/runs/{fork['run_id']}/evidence"
+        )
+        _, parent_after = request_json(
+            f"{self.base}/api/v1/runs/{parent_id}/evidence"
+        )
+
+        self.assertEqual(fork_code, 202)
+        self.assertEqual(fork["contract_version"], RUN_FORK_ADMISSION_VERSION)
+        self.assertEqual(fork["parent_run_id"], parent_id)
+        self.assertEqual(fork["from_node_id"], "invoke-flaky-json-cli")
+        self.assertEqual(child["status"], "succeeded")
+        self.assertEqual(child["parent_run_id"], parent_id)
+        self.assertEqual(
+            child["forked_from_node_id"],
+            "invoke-flaky-json-cli",
+        )
+        self.assertEqual(child["reused_node_ids"], ["write-article"])
+        self.assertEqual(
+            [step["status"] for step in child["steps"]],
+            ["reused", "succeeded", "succeeded"],
+        )
+        self.assertEqual(
+            [step["attempts"] for step in child["steps"]],
+            [0, 1, 1],
+        )
+        self.assertEqual(counter.read_text(encoding="utf-8"), "2")
+        self.assertEqual(parent_after, parent_before)
+        self.assertEqual(child_evidence["run"]["parent_run_id"], parent_id)
+        self.assertEqual(
+            child_evidence["run"]["forked_from_node_id"],
+            "invoke-flaky-json-cli",
+        )
+        self.assertEqual(child_evidence["nodes"][0]["status"], "reused")
+        self.assertEqual(len(child_evidence["artifacts"]), 1)
+        started = [
+            event["node_id"]
+            for event in child_evidence["events"]
+            if event["event_type"] == "executor.started"
+        ]
+        self.assertEqual(started, ["invoke-flaky-json-cli", "publish-article"])
+        fork_authorization = next(
+            event
+            for event in child_evidence["events"]
+            if event["event_type"] == "run.effects_authorized"
+        )
+        self.assertEqual(
+            fork_authorization["payload_json"]["scope"]["node_ids"],
+            ["invoke-flaky-json-cli", "publish-article"],
+        )
+        self.assertEqual(
+            fork_authorization["payload_json"]["effects"][0]["node_ids"],
+            ["invoke-flaky-json-cli"],
+        )
+        _, fork_comparison = request_json(
+            f"{self.base}/api/v1/runs/{parent_id}/comparison"
+            f"?other_run_id={fork['run_id']}"
+        )
+        self.assertEqual(fork_comparison["lineage_relation"], "left_parent_of_right")
+        self.assertEqual(
+            fork_comparison["nodes"][0]["comparison"],
+            "execution_mode_changed",
+        )
+        self.assertEqual(
+            fork_comparison["first_divergent_node_id"],
+            "invoke-flaky-json-cli",
+        )
+
+        flow["steps"][0]["prompt"] += " Changed after the parent Run."
+        update_request = Request(
+            f"{self.base}/api/flows/{saved['flow_id']}",
+            data=json.dumps({"template_id": "compact", "flow": flow}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urlopen(update_request, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        drifted = Request(
+            f"{self.base}/api/v1/runs/{parent_id}/forks",
+            data=json.dumps(
+                {
+                    "contract_version": RUN_FORK_REQUEST_VERSION,
+                    "from_node_id": "invoke-flaky-json-cli",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as drifted_error:
+            urlopen(drifted, timeout=5)
+        self.assertEqual(drifted_error.exception.code, 400)
+        self.assertIn(
+            "exact parent Flow hash",
+            json.loads(drifted_error.exception.read())["error"],
+        )
+        _, runs_after_drift = request_json(f"{self.base}/api/v1/runs")
+        self.assertEqual(len(runs_after_drift["items"]), 2)
 
     def test_task_and_run_history_survive_server_restart(self) -> None:
         _, tasks = request_json(f"{self.base}/api/v1/tasks")
@@ -211,6 +446,107 @@ class LocalAppTests(unittest.TestCase):
                     request_json(f"{self.base}{path}")
                 self.assertEqual(raised.exception.code, expected)
 
+    def test_run_comparison_is_strict_redacted_and_survives_restart(self) -> None:
+        _, task = request_json(
+            f"{self.base}/api/v1/tasks",
+            {
+                "title": "Comparable task",
+                "goal": "Compare exact durable boundaries",
+                "topic": "Run comparison",
+                "granularity": "compact",
+            },
+        )
+        run_ids: list[str] = []
+        for _ in range(2):
+            _, admitted = request_json(
+                f"{self.base}/api/v1/runs",
+                {"task_id": task["task_id"], "executor": "deterministic"},
+            )
+            wait_for_json(f"{self.base}/api/v1/runs/{admitted['run_id']}/evidence")
+            run_ids.append(str(admitted["run_id"]))
+
+        comparison_url = (
+            f"{self.base}/api/v1/runs/{run_ids[0]}/comparison"
+            f"?other_run_id={run_ids[1]}"
+        )
+        _, report = request_json(comparison_url)
+        self.assertEqual(report["kind"], "RunComparisonReport")
+        self.assertEqual(report["overall"], "equivalent")
+        self.assertIsNone(report["first_divergent_node_id"])
+        self.assertEqual(report["lineage_relation"], "unrelated")
+        self.assertTrue(all(node["comparison"] == "same" for node in report["nodes"]))
+        serialized = json.dumps(report)
+        for forbidden in (
+            "input_json",
+            "output_json",
+            "payload_json",
+            "context",
+            "events",
+            "relative_path",
+            "content_url",
+            "stage_hash",
+            "article_markdown",
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+        _, other_task = request_json(
+            f"{self.base}/api/v1/tasks",
+            {
+                "title": "Other task",
+                "goal": "Must not compare across tasks",
+                "topic": "Other comparison",
+                "granularity": "compact",
+            },
+        )
+        _, other_run = request_json(
+            f"{self.base}/api/v1/runs",
+            {"task_id": other_task["task_id"], "executor": "deterministic"},
+        )
+        wait_for_json(f"{self.base}/api/v1/runs/{other_run['run_id']}/evidence")
+
+        for path, expected in (
+            (f"/api/v1/runs/{run_ids[0]}/comparison", 400),
+            (
+                f"/api/v1/runs/{run_ids[0]}/comparison"
+                f"?other_run_id={run_ids[1]}&other_run_id={other_run['run_id']}",
+                400,
+            ),
+            (
+                f"/api/v1/runs/{run_ids[0]}/comparison"
+                f"?other_run_id={run_ids[1]}&extra=1",
+                400,
+            ),
+            (f"/api/v1/runs/{run_ids[0]}/comparison?other_run_id={run_ids[0]}", 400),
+            (f"/api/v1/runs/{run_ids[0]}/comparison?other_run_id=missing", 404),
+            (
+                f"/api/v1/runs/{run_ids[0]}/comparison"
+                f"?other_run_id={other_run['run_id']}",
+                400,
+            ),
+        ):
+            with self.subTest(path=path):
+                with self.assertRaises(HTTPError) as raised:
+                    request_json(f"{self.base}{path}")
+                self.assertEqual(raised.exception.code, expected)
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.server = create_local_app(
+            self.root,
+            self.state_root,
+            port=0,
+            web_root=self.web_root,
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+        _, restored = request_json(
+            f"{self.base}/api/v1/runs/{run_ids[0]}/comparison"
+            f"?other_run_id={run_ids[1]}"
+        )
+        self.assertEqual(restored, report)
+
     def test_api_rejects_unknown_executor_without_creating_run(self) -> None:
         _, tasks = request_json(f"{self.base}/api/v1/tasks")
         request = Request(
@@ -227,6 +563,205 @@ class LocalAppTests(unittest.TestCase):
         _, runs = request_json(f"{self.base}/api/v1/runs")
         self.assertEqual(runs["items"], [])
 
+    def test_versioned_saved_flow_admission_contract_is_strict(self) -> None:
+        _, saved_flows = request_json(f"{self.base}/api/flows")
+        canonical = next(
+            item
+            for item in saved_flows
+            if item["flow_id"] == "task_canonical_writing"
+        )
+        portable_flow_id = canonical["flow"]["id"]
+        code, admission = request_json(
+            f"{self.base}/api/v1/flows/{portable_flow_id}/runs",
+            {
+                "contract_version": "symphlo.run-request.v1",
+                "executor": "deterministic",
+                "inputs": {"report_focus": "A versioned admission boundary"},
+            },
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(admission["contract_version"], "symphlo.run-admission.v1")
+        self.assertEqual(admission["flow_id"], portable_flow_id)
+        self.assertEqual(admission["status"], "running")
+        evidence = wait_for_json(
+            f"{self.base}/api/v1/runs/{admission['run_id']}/evidence"
+        )
+        self.assertEqual(evidence["run"]["status"], "succeeded")
+
+        _, before = request_json(f"{self.base}/api/v1/runs")
+        with self.assertRaises(HTTPError) as missing:
+            request_json(
+                f"{self.base}/api/v1/flows/not-installed/runs",
+                {
+                    "contract_version": "symphlo.run-request.v1",
+                    "executor": "deterministic",
+                    "inputs": {},
+                },
+            )
+        self.assertEqual(missing.exception.code, 404)
+
+        for payload in (
+            {"executor": "deterministic", "inputs": {}},
+            {
+                "contract_version": "symphlo.run-request.v1",
+                "executor": "unknown",
+                "inputs": {},
+            },
+            {
+                "contract_version": "symphlo.run-request.v1",
+                "executor": "deterministic",
+                "inputs": [],
+            },
+            {
+                "contract_version": "symphlo.run-request.v1",
+                "executor": "deterministic",
+                "inputs": {},
+                "extra": True,
+            },
+        ):
+            with self.subTest(payload=payload), self.assertRaises(HTTPError) as raised:
+                request_json(
+                    f"{self.base}/api/v1/flows/{portable_flow_id}/runs",
+                    payload,  # type: ignore[arg-type]
+                )
+            self.assertEqual(raised.exception.code, 400)
+
+        _, draft = request_json(
+            f"{self.base}/api/flows/draft",
+            {
+                "template_id": "compact",
+                "user_request": "Ambiguous portable Flow",
+                "report_focus": "Ambiguous portable Flow",
+            },
+        )
+        for _ in range(2):
+            request_json(
+                f"{self.base}/api/flows",
+                {"template_id": "compact", "flow": draft["flow_dsl"]},
+            )
+        with self.assertRaises(HTTPError) as ambiguous:
+            request_json(
+                f"{self.base}/api/v1/flows/{draft['flow_dsl']['id']}/runs",
+                {
+                    "contract_version": "symphlo.run-request.v1",
+                    "executor": "deterministic",
+                    "inputs": {},
+                },
+            )
+        self.assertEqual(ambiguous.exception.code, 400)
+        _, after = request_json(f"{self.base}/api/v1/runs")
+        self.assertEqual(len(after["items"]), len(before["items"]))
+
+    def test_write_effect_admission_returns_exact_challenge_and_accepts_one_bound_authorization(self) -> None:
+        fixture = Path(__file__).resolve().parents[1] / "examples/capabilities/stdio_json_cli.py"
+        _, capability = request_json(
+            f"{self.base}/api/v1/capabilities",
+            {
+                "capability": {
+                    "id": "cli.write-gated",
+                    "name": "Write-gated CLI fixture",
+                    "kind": "cli",
+                    "effects": ["execute_process", "write_local"],
+                    "config": {"executable": sys.executable, "args": [str(fixture)]},
+                }
+            },
+        )
+        flow = {
+            "schema_version": 1,
+            "id": "write-gated-flow",
+            "name": "Write-gated Flow",
+            "description": "Prove pre-admission write authorization.",
+            "inputs": {
+                "target": {
+                    "type": "string",
+                    "required": True,
+                    "description": "A sensitive target that must not appear in the challenge.",
+                }
+            },
+            "steps": [
+                {
+                    "id": "write-target",
+                    "type": "tool.task",
+                    "from": None,
+                    "params": {
+                        "title": "Write target",
+                        "capability_id": capability["id"],
+                    },
+                    "prompt": "Execute one declared local write.",
+                }
+            ],
+            "outputs": {},
+        }
+        _, saved = request_json(
+            f"{self.base}/api/flows",
+            {"template_id": "compact", "flow": flow},
+        )
+        portable_url = f"{self.base}/api/v1/flows/{flow['id']}/runs"
+        initial_payload = {
+            "contract_version": "symphlo.run-request.v1",
+            "executor": "deterministic",
+            "inputs": {"target": "private/customer-list.xlsx"},
+        }
+        request = Request(
+            portable_url,
+            data=json.dumps(initial_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=5)
+        self.assertEqual(raised.exception.code, 428)
+        challenge = json.loads(raised.exception.read())
+        self.assertEqual(
+            challenge["contract_version"],
+            "symphlo.effect-authorization-required.v1",
+        )
+        self.assertEqual(challenge["effects"][0]["effect"], "write_local")
+        self.assertNotIn("customer-list.xlsx", json.dumps(challenge))
+        _, runs = request_json(f"{self.base}/api/v1/runs")
+        self.assertEqual(runs["items"], [])
+
+        stale_payload = {
+            "contract_version": RUN_AUTHORIZED_REQUEST_VERSION,
+            "executor": "deterministic",
+            "inputs": {"target": "private/changed.xlsx"},
+            "effect_authorization": challenge["authorization"],
+        }
+        stale_request = Request(
+            portable_url,
+            data=json.dumps(stale_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as stale:
+            urlopen(stale_request, timeout=5)
+        self.assertEqual(stale.exception.code, 428)
+        current = json.loads(stale.exception.read())
+        self.assertNotEqual(current["authorization_id"], challenge["authorization_id"])
+
+        admitted_payload = {
+            "contract_version": RUN_AUTHORIZED_REQUEST_VERSION,
+            "executor": "deterministic",
+            "inputs": initial_payload["inputs"],
+            "effect_authorization": challenge["authorization"],
+        }
+        admitted_code, admitted = request_json(portable_url, admitted_payload)
+        self.assertEqual(admitted_code, 202)
+        terminal = wait_for_json(
+            f"{self.base}/api/v1/runs/{admitted['run_id']}/evidence"
+        )
+        self.assertEqual(terminal["run"]["status"], "succeeded")
+        authorized = next(
+            event
+            for event in terminal["events"]
+            if event["event_type"] == "run.effects_authorized"
+        )
+        self.assertEqual(
+            authorized["payload_json"]["authorization_id"],
+            challenge["authorization_id"],
+        )
+        self.assertEqual(saved["flow"]["id"], "write-gated-flow")
     def test_legacy_console_contract_runs_canonical_flow_and_opens_artifact(self) -> None:
         _, templates = request_json(f"{self.base}/api/flow-templates")
         self.assertEqual([item["template_id"] for item in templates], ["compact", "balanced", "fine"])
@@ -247,7 +782,7 @@ class LocalAppTests(unittest.TestCase):
             f"{self.base}/api/flows",
             {"template_id": "balanced", "flow": draft["flow_dsl"]},
         )
-        run_code, result = request_json(
+        run_code, result = request_json_with_confirmed_effects(
             f"{self.base}/api/flows/{saved['flow_id']}/runs",
             {"inputs": {}, "executor": "deterministic"},
         )
@@ -417,13 +952,14 @@ class LocalAppTests(unittest.TestCase):
             conversations,
         )
 
-    def test_capability_api_and_saved_canvas_execute_the_bound_node(self) -> None:
+    def test_tool_node_executes_one_bound_operation_and_preserves_legacy_alias(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples/capabilities/stdio_json_cli.py"
         draft = {
             "id": "cli.canvas-fixture",
             "name": "Canvas CLI fixture",
             "kind": "cli",
             "description": "Exercise a real saved Capability Node.",
+            "effects": ["execute_process", "read_local"],
             "config": {"executable": sys.executable, "args": [str(fixture)]},
         }
         validate_code, validation = request_json(
@@ -437,6 +973,27 @@ class LocalAppTests(unittest.TestCase):
             f"{self.base}/api/v1/capabilities", {"capability": draft}
         )
         self.assertEqual(save_code, 201)
+        _, agent_capability = request_json(
+            f"{self.base}/api/v1/capabilities",
+            {
+                "capability": {
+                    "id": "agent.not-a-tool",
+                    "name": "Not a Tool",
+                    "kind": "agent_cli",
+                    "config": {
+                        "executable": sys.executable,
+                        "args": [
+                            str(
+                                Path(__file__).resolve().parents[1]
+                                / "examples/agents/stdio_fixture_agent.py"
+                            )
+                        ],
+                        "input_mode": "stdin",
+                        "output_format": "text",
+                    },
+                }
+            },
+        )
 
         _, drafted = request_json(
             f"{self.base}/api/flows/draft",
@@ -444,10 +1001,28 @@ class LocalAppTests(unittest.TestCase):
         )
         flow = drafted["flow_dsl"]
         publisher = flow["steps"].pop()
+        legacy = json.loads(json.dumps(flow))
+        legacy["id"] = "legacy-capability-alias"
+        legacy["steps"].append(
+            {
+                "id": "legacy-json-cli",
+                "type": "capability.task",
+                "from": "write-article",
+                "params": {
+                    "title": "Legacy saved Capability alias",
+                    "capability_id": capability["id"],
+                },
+                "prompt": "Preserve the existing saved Flow contract.",
+            }
+        )
+        _, legacy_validation = request_json(
+            f"{self.base}/api/flows/validate", legacy
+        )
+        self.assertTrue(legacy_validation["valid"], legacy_validation)
         flow["steps"].append(
             {
                 "id": "invoke-json-cli",
-                "type": "capability.task",
+                "type": "tool.task",
                 "from": "write-article",
                 "params": {
                     "title": "Invoke saved JSON CLI",
@@ -494,13 +1069,32 @@ class LocalAppTests(unittest.TestCase):
         self.assertEqual(result["run"]["status"], "succeeded")
         self.assertEqual(
             [step["node_type"] for step in result["run"]["steps"]],
-            ["agent.task", "capability.task", "artifact.task"],
+            ["agent.task", "tool.task", "artifact.task"],
         )
         _, evidence = request_json(
             f"{self.base}/api/v1/runs/{result['run']['run_id']}/evidence"
         )
         self.assertEqual(evidence["nodes"][1]["evidence_level"], "E2_REAL_EXECUTOR")
         self.assertEqual(evidence["nodes"][1]["output_json"]["fixture"], "stdio_json_cli")
+        self.assertEqual(
+            evidence["nodes"][1]["output_json"]["tool_call"],
+            {
+                "contract_version": "symphlo.tool-call-evidence.v1",
+                "capability_id": capability["id"],
+                "capability_fingerprint": capability["fingerprint"],
+                "transport": "cli",
+                "operation": capability["id"],
+            },
+        )
+
+        incompatible = json.loads(json.dumps(flow))
+        incompatible["id"] = "wrong-tool-binding"
+        incompatible["steps"][1]["params"]["capability_id"] = agent_capability["id"]
+        _, validation = request_json(
+            f"{self.base}/api/flows/validate", incompatible
+        )
+        self.assertFalse(validation["valid"])
+        self.assertIn("cannot bind agent_cli", validation["errors"][0]["message"])
 
         delete = Request(
             f"{self.base}/api/v1/capabilities/{capability['id']}", method="DELETE"
@@ -508,6 +1102,214 @@ class LocalAppTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as raised:
             urlopen(delete, timeout=5)
         self.assertEqual(raised.exception.code, 409)
+
+    def test_saved_model_node_requires_model_cli_and_persists_one_call(self) -> None:
+        fixture = (
+            Path(__file__).resolve().parents[1]
+            / "examples/capabilities/model_inference_fixture.py"
+        )
+        _, model_capability = request_json(
+            f"{self.base}/api/v1/capabilities",
+            {
+                "capability": {
+                    "id": "model.canvas-fixture",
+                    "name": "Canvas model fixture",
+                    "kind": "model_cli",
+                    "config": {
+                        "executable": sys.executable,
+                        "args": [str(fixture)],
+                        "protocol": "symphlo.model-inference.v1",
+                    },
+                }
+            },
+        )
+        _, cli_capability = request_json(
+            f"{self.base}/api/v1/capabilities",
+            {
+                "capability": {
+                    "id": "cli.not-a-model",
+                    "name": "Not a model",
+                    "kind": "cli",
+                    "config": {
+                        "executable": sys.executable,
+                        "args": [str(Path(__file__).resolve().parents[1] / "examples/capabilities/stdio_json_cli.py")],
+                    },
+                }
+            },
+        )
+        _, drafted = request_json(
+            f"{self.base}/api/flows/draft",
+            {"template_id": "compact", "report_focus": "One explicit model call"},
+        )
+        flow = drafted["flow_dsl"]
+        flow["steps"][0].update(
+            {
+                "type": "model.task",
+                "params": {
+                    "title": "Invoke one model adapter",
+                    "capability_id": model_capability["id"],
+                },
+                "prompt": "Return one bounded model result.",
+            }
+        )
+        _, saved = request_json(
+            f"{self.base}/api/flows", {"template_id": "compact", "flow": flow}
+        )
+        call_log = self.root / "model-calls.jsonl"
+        with patch.dict(os.environ, {"SYMPHLO_MODEL_CALL_LOG": str(call_log)}):
+            _, admitted = request_json(
+                f"{self.base}/api/flows/{saved['flow_id']}/runs",
+                {"inputs": {}, "executor": "deterministic"},
+            )
+            run = wait_for_json(
+                f"{self.base}/api/flows/runs/{admitted['run']['run_id']}"
+            )
+
+        self.assertEqual(run["status"], "succeeded")
+        self.assertEqual(
+            [step["node_type"] for step in run["steps"]],
+            ["model.task", "artifact.task"],
+        )
+        calls = call_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 1)
+        _, evidence = request_json(
+            f"{self.base}/api/v1/runs/{run['run_id']}/evidence"
+        )
+        self.assertEqual(evidence["nodes"][0]["evidence_level"], "E2_REAL_EXECUTOR")
+        self.assertIn("model_output", evidence["nodes"][0]["output_json"])
+        self.assertEqual(evidence["artifacts"][0]["name"], "result.md")
+
+        incompatible = json.loads(json.dumps(flow))
+        incompatible["id"] = "wrong-model-binding"
+        incompatible["steps"][0]["params"]["capability_id"] = cli_capability["id"]
+        _, validation = request_json(
+            f"{self.base}/api/flows/validate", incompatible
+        )
+        self.assertFalse(validation["valid"])
+        self.assertIn("requires model_cli", validation["errors"][0]["message"])
+
+    def test_evaluation_node_rejects_candidate_and_projects_producer_repair_target(self) -> None:
+        project = Path(__file__).resolve().parents[1]
+        tool = self.server.workspace.save_capability(
+            {
+                "id": "cli.evaluation-producer",
+                "name": "Evaluation producer fixture",
+                "kind": "cli",
+                "effects": ["execute_process", "read_local"],
+                "config": {
+                    "executable": sys.executable,
+                    "args": [str(project / "examples" / "capabilities" / "stdio_json_cli.py")],
+                },
+            }
+        )
+        evaluator = self.server.workspace.save_capability(
+            {
+                "id": "evaluator.reject-fixture",
+                "name": "Rejecting evaluator fixture",
+                "kind": "evaluator_cli",
+                "effects": ["execute_process", "read_local"],
+                "config": {
+                    "executable": sys.executable,
+                    "args": [
+                        str(project / "examples" / "capabilities" / "evaluation_fixture.py"),
+                        "--verdict",
+                        "fail",
+                    ],
+                    "protocol": "symphlo.evaluation.v1",
+                },
+            }
+        )
+        flow = {
+            "schema_version": 1,
+            "id": "evaluation-repair-projection",
+            "name": "Evaluation repair projection",
+            "description": "Reject one candidate before publication.",
+            "execution": {
+                "mode": "semi_auto",
+                "default_blocking": True,
+                "stop_on_error": True,
+                "require_confirm_before": [],
+            },
+            "inputs": {
+                "subject": {
+                    "type": "string",
+                    "required": True,
+                    "default": "evaluation",
+                    "description": "Fixture topic",
+                }
+            },
+            "steps": [
+                {
+                    "id": "produce-candidate",
+                    "type": "tool.task",
+                    "from": None,
+                    "params": {
+                        "title": "Produce candidate",
+                        "capability_id": tool["id"],
+                    },
+                    "prompt": "Produce one candidate.",
+                },
+                {
+                    "id": "evaluate-candidate",
+                    "type": "evaluation.task",
+                    "from": "produce-candidate",
+                    "params": {
+                        "title": "Evaluate candidate",
+                        "capability_id": evaluator["id"],
+                    },
+                    "prompt": "Reject the fixture candidate.",
+                },
+                {
+                    "id": "publish-candidate",
+                    "type": "artifact.task",
+                    "from": "evaluate-candidate",
+                    "params": {"title": "Publish candidate"},
+                    "prompt": "Publish only an accepted candidate.",
+                },
+            ],
+            "outputs": {"markdown": "publish-candidate.artifact"},
+            "x_symphlo": {"granularity": "balanced"},
+        }
+        _, saved = request_json(
+            f"{self.base}/api/flows",
+            {"template_id": "balanced", "flow": flow},
+        )
+        try:
+            _, admitted = request_json(
+                f"{self.base}/api/flows/{saved['flow_id']}/runs",
+                {"inputs": {"subject": "evaluation"}, "executor": "deterministic"},
+            )
+        except HTTPError as error:
+            self.fail(error.read().decode("utf-8"))
+        run = wait_for_json(
+            f"{self.base}/api/flows/runs/{admitted['run']['run_id']}"
+        )
+        _, evidence = request_json(
+            f"{self.base}/api/v1/runs/{run['run_id']}/evidence"
+        )
+
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(
+            [step["status"] for step in run["steps"]],
+            ["succeeded", "failed", "skipped"],
+        )
+        rejected = run["steps"][1]
+        self.assertEqual(rejected["node_type"], "evaluation.task")
+        self.assertEqual(rejected["error"]["code"], "EVALUATION_REJECTED")
+        self.assertEqual(rejected["repair_from_step_id"], "produce-candidate")
+        self.assertEqual(
+            evidence["nodes"][1]["output_json"]["evaluation"]["verdict"],
+            "fail",
+        )
+        self.assertFalse(evidence["artifacts"])
+
+        invalid = json.loads(json.dumps(flow))
+        invalid["id"] = "evaluation-first-node"
+        invalid["steps"] = [invalid["steps"][1]]
+        invalid["steps"][0]["from"] = None
+        _, validation = request_json(f"{self.base}/api/flows/validate", invalid)
+        self.assertFalse(validation["valid"])
+        self.assertIn("upstream candidate", validation["errors"][0]["message"])
 
     def test_runtime_owned_http_sample_survives_restart_and_preserves_context(self) -> None:
         _, capabilities = request_json(f"{self.base}/api/v1/capabilities")
@@ -636,6 +1438,7 @@ class LocalAppTests(unittest.TestCase):
                     "name": "Slow Agent fixture",
                     "kind": "agent_cli",
                     "timeout_seconds": 20,
+                    "effects": ["execute_process"],
                     "config": {
                         "executable": sys.executable,
                         "args": [str(fixture), "--sleep", "5"],
@@ -655,7 +1458,7 @@ class LocalAppTests(unittest.TestCase):
         )
 
         started = time.monotonic()
-        run_code, result = request_json(
+        run_code, result = request_json_with_confirmed_effects(
             f"{self.base}/api/flows/{saved['flow_id']}/runs",
             {"inputs": {}, "executor": "deterministic"},
         )
@@ -805,7 +1608,7 @@ class LocalAppTests(unittest.TestCase):
             {"template_id": "fine", "flow": flow},
         )
 
-        run_code, result = request_json(
+        run_code, result = request_json_with_confirmed_effects(
             f"{self.base}/api/flows/{saved['flow_id']}/runs",
             {"inputs": {}, "executor": "deterministic"},
         )
@@ -849,6 +1652,25 @@ class LocalAppTests(unittest.TestCase):
         self.assertEqual(
             records[1]["requested_conversation_ref"],
             records[0]["conversation_ref"],
+        )
+
+        fork = Request(
+            f"{self.base}/api/v1/runs/{run_id}/forks",
+            data=json.dumps(
+                {
+                    "contract_version": RUN_FORK_REQUEST_VERSION,
+                    "from_node_id": "revise-article",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(fork, timeout=5)
+        self.assertEqual(raised.exception.code, 400)
+        self.assertIn(
+            "session_group boundary",
+            json.loads(raised.exception.read())["error"],
         )
 
     def test_grouped_agent_node_rejects_one_shot_capability(self) -> None:

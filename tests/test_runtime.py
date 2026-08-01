@@ -5,14 +5,97 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from symphlo.demo import build_runtime, writing_flow
-from symphlo.runtime import ExecutorRegistry, LocalRuntime
+from symphlo.runtime import ExecutorRegistry, ForkSeed, LocalRuntime
 from symphlo.store import EvidenceStore
 from symphlo.workspace import LocalWorkspace
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_fork_reuses_accepted_prefix_and_executes_from_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = EvidenceStore(root / "state")
+            runtime = build_runtime(store)
+            flow = writing_flow("balanced")
+            flow_input = {
+                "goal": "Debug one observable stage",
+                "topic": "Node-level Run fork",
+                "audience": "Agent builders",
+                "granularity": "balanced",
+            }
+            parent_id = runtime.run(flow, flow_input, root)
+            parent = store.run_evidence(parent_id)
+            target = flow.nodes[1].node_id
+            seed = ForkSeed(
+                parent_id,
+                flow.semantic_hash,
+                target,
+                tuple(parent["nodes"][:1]),
+            )
+
+            child_id = runtime.fork(flow, flow_input, root, seed)
+            child = store.run_evidence(child_id)
+            parent_after = store.run_evidence(parent_id)
+
+        self.assertEqual(parent_after, parent)
+        self.assertEqual(child["run"]["status"], "succeeded")
+        self.assertEqual(
+            [node["status"] for node in child["nodes"]],
+            ["reused", "succeeded", "succeeded", "succeeded"],
+        )
+        self.assertEqual(child["nodes"][0]["output_json"], parent["nodes"][0]["output_json"])
+        self.assertEqual(child["nodes"][1]["input_json"], child["nodes"][0]["output_json"])
+        self.assertEqual(len(child["context"]), len(flow.nodes))
+        self.assertEqual(len(child["artifacts"]), 1)
+        event_types = [event["event_type"] for event in child["events"]]
+        self.assertIn("run.forked", event_types)
+        self.assertIn("node.reused", event_types)
+        started = [
+            event["node_id"]
+            for event in child["events"]
+            if event["event_type"] == "executor.started"
+        ]
+        self.assertEqual(started, [node.node_id for node in flow.nodes[1:]])
+
+    def test_workspace_json_read_retries_transient_windows_permission_error(self) -> None:
+        path = Path("app-run.json")
+        with (
+            patch.object(
+                Path,
+                "read_text",
+                side_effect=[PermissionError("transient replace window"), '{"ok": true}'],
+            ) as read_text,
+            patch("symphlo.workspace.time.sleep") as sleep,
+        ):
+            value = LocalWorkspace._read_json(path)
+
+        self.assertEqual(value, {"ok": True})
+        self.assertEqual(read_text.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_workspace_json_write_retries_transient_windows_permission_error(self) -> None:
+        state_dir = Path("run-0001")
+        with (
+            patch.object(Path, "write_text") as write_text,
+            patch.object(
+                Path,
+                "replace",
+                side_effect=[PermissionError("transient reader window"), Path("app-run.json")],
+            ) as replace,
+            patch("symphlo.workspace.time.sleep") as sleep,
+        ):
+            LocalWorkspace._write_run_metadata(
+                state_dir,
+                {"run_id": "run-1", "status": "succeeded"},
+            )
+
+        write_text.assert_called_once()
+        self.assertEqual(replace.call_count, 2)
+        sleep.assert_called_once()
+
     def test_balanced_outer_loop_persists_handoffs_artifact_and_two_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -72,7 +155,7 @@ class RuntimeTests(unittest.TestCase):
             store = EvidenceStore(root / "state")
             runtime = build_runtime(store)
             flow = writing_flow("compact")
-            run_id = runtime.admit(flow)
+            run_id = runtime.admit(flow, {})
 
             self.assertEqual(store.request_cancel(run_id), ("cancel_requested", True))
             self.assertEqual(store.request_cancel(run_id), ("cancel_requested", False))
@@ -96,7 +179,7 @@ class RuntimeTests(unittest.TestCase):
             store = EvidenceStore(state_dir)
             runtime = build_runtime(store)
             flow = writing_flow("compact")
-            run_id = runtime.admit(flow)
+            run_id = runtime.admit(flow, {})
             (state_dir / "app-run.json").write_text(
                 json.dumps(
                     {

@@ -4,11 +4,17 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+from pathlib import Path
 
 
 def main() -> int:
     request = json.load(sys.stdin)
+    call_log = os.environ.get("SYMPHLO_TOOL_CALL_LOG")
+    if call_log:
+        with Path(call_log).open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(request, ensure_ascii=False, sort_keys=True) + "\n")
     context = request.get("context", {})
     output = {
             "fixture": "stdio_json_cli",

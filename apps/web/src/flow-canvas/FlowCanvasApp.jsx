@@ -22,11 +22,15 @@ import {
   SleepNode,
   AgentNode,
   CapabilityNode,
+  ToolNode,
+  EvaluationNode,
 } from "./nodeTypes/FlowNodes.jsx";
 import {DeletableEdge} from "./edgeTypes/DeletableEdge.jsx";
 
 const nodeTypes = {
   agent: AgentNode,
+  tool: ToolNode,
+  evaluation: EvaluationNode,
   capability: CapabilityNode,
   sleep: SleepNode,
   if: IfNode,
@@ -41,7 +45,8 @@ const edgeTypes = {
 
 const palette = [
   {kind: "agent", label: "Agent"},
-  {kind: "capability", label: "Capability"},
+  {kind: "tool", label: "Tool"},
+  {kind: "evaluation", label: "Evaluation"},
   {kind: "end", label: "结束"},
 ];
 
@@ -184,6 +189,8 @@ function FlowCanvasApp() {
   const empty = !nodes.length;
   const minimapNodeColor = useCallback((node) => {
     if (node.type === "agent") return "#2563eb";
+    if (node.type === "tool") return "#0f766e";
+    if (node.type === "evaluation") return "#c2410c";
     if (node.type === "capability") return "#7c3aed";
     if (node.type === "if") return "#b54708";
     if (node.type === "sleep") return "#667085";

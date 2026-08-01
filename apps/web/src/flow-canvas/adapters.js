@@ -5,6 +5,9 @@ const branchCondition = {
 
 const nodeTypeByStepType = {
   "agent.task": "agent",
+  "model.task": "llm",
+  "evaluation.task": "evaluation",
+  "tool.task": "tool",
   "capability.task": "capability",
   "artifact.task": "end",
   "time.sleep": "sleep",

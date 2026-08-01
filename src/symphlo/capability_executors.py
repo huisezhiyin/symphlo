@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import selectors
+import queue
 import shlex
 import subprocess
 import threading
@@ -17,6 +17,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .capabilities import CapabilityDefinition, probe_record
 from .contracts import (
     EvidenceLevel,
+    EvaluationDecision,
+    EvaluationFinding,
     ExecutionResult,
     ExecutorRef,
     ExecutorSessionEvidence,
@@ -29,6 +31,7 @@ from .executors import (
     ExecutionCancelled,
     ExecutionRequest,
     Executor,
+    process_group_options,
     run_cancellable_process,
     signal_process_tree,
 )
@@ -36,11 +39,37 @@ from .executors import (
 MAX_OUTPUT_BYTES = 1_000_000
 MCP_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_MCP_VERSIONS = {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+MODEL_REQUEST_VERSION = "symphlo.model-inference-request.v1"
+MODEL_RESULT_VERSION = "symphlo.model-inference-result.v1"
+MODEL_RESULT_KEYS = frozenset({"contract_version", "output"})
+EVALUATION_REQUEST_VERSION = "symphlo.evaluation-request.v1"
+EVALUATION_RESULT_VERSION = "symphlo.evaluation-result.v1"
+EVALUATION_RESULT_KEYS = frozenset(
+    {"contract_version", "verdict", "summary", "findings"}
+)
+EVALUATION_FINDING_KEYS = frozenset({"code", "message"})
+TOOL_CALL_EVIDENCE_VERSION = "symphlo.tool-call-evidence.v1"
+
+
+def _tool_call_evidence(capability: CapabilityDefinition) -> JsonObject:
+    """Return non-secret identity for one accepted semantic tool operation."""
+
+    return {
+        "contract_version": TOOL_CALL_EVIDENCE_VERSION,
+        "capability_id": capability.capability_id,
+        "capability_fingerprint": capability.fingerprint,
+        "transport": capability.kind,
+        "operation": capability.capability_id,
+    }
 
 
 def executor_for_capability(capability: CapabilityDefinition) -> Executor:
     if capability.kind == "agent_cli":
         return CapabilityAgentExecutor(capability)
+    if capability.kind == "model_cli":
+        return ModelCliCapabilityExecutor(capability)
+    if capability.kind == "evaluator_cli":
+        return EvaluationCliCapabilityExecutor(capability)
     if capability.kind == "cli":
         return CliCapabilityExecutor(capability)
     if capability.kind == "mcp_stdio":
@@ -52,10 +81,12 @@ def executor_for_capability(capability: CapabilityDefinition) -> Executor:
 
 def probe_capability(capability: CapabilityDefinition, workspace: Path) -> JsonObject:
     try:
-        if capability.kind == "agent_cli":
+        if capability.kind in {"agent_cli", "model_cli", "evaluator_cli"}:
             executable = Path(str(capability.config["executable"]))
             if not executable.is_file():
-                raise RuntimeError(f"Agent executable is unavailable: {executable.name}")
+                raise RuntimeError(
+                    f"{capability.kind} executable is unavailable: {executable.name}"
+                )
             probe_args = capability.config.get("probe_args")
             if isinstance(probe_args, list):
                 completed = _run_process(
@@ -70,9 +101,10 @@ def probe_capability(capability: CapabilityDefinition, workspace: Path) -> JsonO
                         f"Agent CLI readiness probe failed: executable={executable.name} "
                         f"exit={completed.returncode} stderr_bytes={len(completed.stderr.encode('utf-8'))}"
                     )
+            label = "Agent CLI" if capability.kind == "agent_cli" else "Model adapter"
             return probe_record(
                 True,
-                f"Agent CLI is ready: {executable.name}",
+                f"{label} is ready: {executable.name}",
                 {"executable_name": executable.name, "version": capability.config.get("version")},
             )
         executor = executor_for_capability(capability)
@@ -220,6 +252,126 @@ class CapabilityAgentExecutor(CommandAgentExecutor):
         )
 
 
+class ModelCliCapabilityExecutor:
+    """Invoke one versioned model adapter request for one Model Node."""
+
+    def __init__(self, capability: CapabilityDefinition) -> None:
+        self.capability = capability
+        self.ref = _executor_ref(capability)
+        self.effects = capability.effects
+
+    def execute(self, request: ExecutionRequest) -> ExecutionResult:
+        config = self.capability.config
+        arguments = [str(config["executable"]), *[str(item) for item in config["args"]]]
+        payload = canonical_json(
+            {
+                "contract_version": MODEL_REQUEST_VERSION,
+                "run_id": request.run_id,
+                "node_id": request.node_id,
+                "instruction": request.instruction,
+                "context": request.value,
+            }
+        )
+        completed = _run_process(
+            arguments,
+            request.workspace,
+            payload,
+            self.capability.timeout_seconds,
+            request.cancellation,
+        )
+        output_text = _process_output(completed, Path(arguments[0]).name)
+        try:
+            parsed = json.loads(output_text)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("model_cli must return one valid JSON object") from error
+        if not isinstance(parsed, dict) or set(parsed) != MODEL_RESULT_KEYS:
+            raise RuntimeError("model_cli result must contain the exact v1 keys")
+        if parsed.get("contract_version") != MODEL_RESULT_VERSION:
+            raise RuntimeError("model_cli returned an unsupported result contract")
+        model_output = parsed.get("output")
+        if not isinstance(model_output, str) or not model_output.strip():
+            raise RuntimeError("model_cli result output must be a non-empty string")
+        return ExecutionResult(
+            {
+                "capability_id": self.capability.capability_id,
+                "capability_fingerprint": self.capability.fingerprint,
+                "contract_version": MODEL_RESULT_VERSION,
+                "model_output": model_output.strip(),
+            },
+            EvidenceLevel.E2_REAL_EXECUTOR,
+        )
+
+
+class EvaluationCliCapabilityExecutor:
+    """Invoke one read-only evaluator and return one bounded control decision."""
+
+    def __init__(self, capability: CapabilityDefinition) -> None:
+        self.capability = capability
+        self.ref = _executor_ref(capability)
+        self.effects = capability.effects
+
+    def execute(self, request: ExecutionRequest) -> ExecutionResult:
+        if request.flow_input is None:
+            raise RuntimeError("evaluation request requires immutable Flow input")
+        config = self.capability.config
+        arguments = [str(config["executable"]), *[str(item) for item in config["args"]]]
+        payload = canonical_json(
+            {
+                "contract_version": EVALUATION_REQUEST_VERSION,
+                "run_id": request.run_id,
+                "node_id": request.node_id,
+                "instruction": request.instruction,
+                "flow_input": request.flow_input,
+                "candidate": request.value,
+            }
+        )
+        completed = _run_process(
+            arguments,
+            request.workspace,
+            payload,
+            self.capability.timeout_seconds,
+            request.cancellation,
+        )
+        output_text = _process_output(completed, Path(arguments[0]).name)
+        try:
+            parsed = json.loads(output_text)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("evaluator_cli must return one valid JSON object") from error
+        if not isinstance(parsed, dict) or set(parsed) != EVALUATION_RESULT_KEYS:
+            raise RuntimeError("evaluator_cli result must contain the exact v1 keys")
+        if parsed.get("contract_version") != EVALUATION_RESULT_VERSION:
+            raise RuntimeError("evaluator_cli returned an unsupported result contract")
+        raw_findings = parsed.get("findings")
+        if not isinstance(raw_findings, list):
+            raise RuntimeError("evaluation findings must be an array")
+        findings: list[EvaluationFinding] = []
+        try:
+            for raw in raw_findings:
+                if not isinstance(raw, dict) or set(raw) != EVALUATION_FINDING_KEYS:
+                    raise ValueError("evaluation finding must contain the exact v1 keys")
+                findings.append(
+                    EvaluationFinding(raw["code"], raw["message"])
+                )
+            decision = EvaluationDecision(
+                parsed.get("verdict"),
+                parsed.get("summary"),
+                tuple(findings),
+            )
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
+        output: JsonObject = {
+            "capability_id": self.capability.capability_id,
+            "capability_fingerprint": self.capability.fingerprint,
+            "candidate": request.value,
+            "evaluation": decision.as_dict(),
+        }
+        return ExecutionResult(
+            output,
+            EvidenceLevel.E2_REAL_EXECUTOR,
+            evaluation=decision,
+        )
+
+
 class CliCapabilityExecutor:
     def __init__(self, capability: CapabilityDefinition) -> None:
         self.capability = capability
@@ -252,9 +404,10 @@ class CliCapabilityExecutor:
         if not isinstance(parsed, dict):
             parsed = {"value": parsed}
         output: JsonObject = {
+            **parsed,
             "capability_id": self.capability.capability_id,
             "capability_fingerprint": self.capability.fingerprint,
-            **parsed,
+            "tool_call": _tool_call_evidence(self.capability),
         }
         return ExecutionResult(output, EvidenceLevel.E2_REAL_EXECUTOR)
 
@@ -304,10 +457,11 @@ class HttpCapabilityExecutor:
             parsed = {"value": parsed}
         return ExecutionResult(
             {
-                "capability_id": self.capability.capability_id,
-                "capability_fingerprint": self.capability.fingerprint,
                 "http_status": status,
                 **parsed,
+                "capability_id": self.capability.capability_id,
+                "capability_fingerprint": self.capability.fingerprint,
+                "tool_call": _tool_call_evidence(self.capability),
             },
             EvidenceLevel.E2_REAL_EXECUTOR,
         )
@@ -363,6 +517,9 @@ class McpStdioCapabilityExecutor:
         ]
         if text_parts:
             output["text"] = "\n".join(text_parts)
+        output["capability_id"] = self.capability.capability_id
+        output["capability_fingerprint"] = self.capability.fingerprint
+        output["tool_call"] = _tool_call_evidence(self.capability)
         return ExecutionResult(output, EvidenceLevel.E2_REAL_EXECUTOR)
 
     def list_tools(self, workspace: Path) -> list[JsonObject]:
@@ -393,8 +550,11 @@ class McpStdioCapabilityExecutor:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
-            start_new_session=os.name == "posix",
+            **process_group_options(),
         )
+        if process.stdout is None:
+            raise RuntimeError("MCP stdout is unavailable")
+        reader = _McpLineReader(process.stdout)
         unregister = (
             cancellation.register(lambda: signal_process_tree(process, force=False))
             if cancellation is not None
@@ -412,6 +572,7 @@ class McpStdioCapabilityExecutor:
                 },
                 self.capability.timeout_seconds,
                 cancellation,
+                reader,
             )
             negotiated = initialize.get("protocolVersion")
             if negotiated not in SUPPORTED_MCP_VERSIONS:
@@ -427,9 +588,11 @@ class McpStdioCapabilityExecutor:
                 params,
                 self.capability.timeout_seconds,
                 cancellation,
+                reader,
             )
         finally:
             unregister()
+            reader.close()
             _close_process(process)
 
 
@@ -502,52 +665,86 @@ def _mcp_request(
     params: JsonObject,
     timeout_seconds: int,
     cancellation: CancellationToken | None,
+    reader: "_McpLineReader",
 ) -> JsonObject:
     _mcp_send(
         process,
         {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
     )
-    if process.stdout is None:
-        raise RuntimeError("MCP stdout is unavailable")
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
     deadline = time.monotonic() + timeout_seconds
     received_bytes = 0
-    try:
-        while True:
-            if cancellation is not None and cancellation.cancelled:
-                raise ExecutionCancelled("execution cancelled")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RuntimeError(f"MCP request timed out: {method}")
-            if not selector.select(min(remaining, 0.1)):
-                continue
-            line = process.stdout.readline()
-            if not line:
-                raise RuntimeError(f"MCP server closed stdout before responding: {method}")
-            received_bytes += len(line.encode("utf-8"))
-            if received_bytes > MAX_OUTPUT_BYTES:
-                raise RuntimeError(f"MCP output exceeds {MAX_OUTPUT_BYTES} bytes")
+    while True:
+        if cancellation is not None and cancellation.cancelled:
+            raise ExecutionCancelled("execution cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f"MCP request timed out: {method}")
+        line = reader.get(min(remaining, 0.1))
+        if line is None:
+            continue
+        if not line:
+            raise RuntimeError(f"MCP server closed stdout before responding: {method}")
+        received_bytes += len(line.encode("utf-8"))
+        if received_bytes > MAX_OUTPUT_BYTES:
+            raise RuntimeError(f"MCP output exceeds {MAX_OUTPUT_BYTES} bytes")
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("MCP server emitted invalid JSON on stdout") from error
+        if not isinstance(message, dict):
+            raise RuntimeError("MCP server emitted a non-object message")
+        if message.get("id") != request_id:
+            if "id" in message and "method" in message:
+                raise RuntimeError("MCP server-to-client requests are unsupported in Local Alpha")
+            continue
+        if "error" in message:
+            error = message["error"]
+            summary = error.get("message") if isinstance(error, dict) else str(error)
+            raise RuntimeError(f"MCP request failed: {summary}")
+        result = message.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("MCP response result must be an object")
+        return result
+
+
+class _McpLineReader:
+    """Own the only blocking stdout reader for one MCP process session."""
+
+    def __init__(self, stream: Any) -> None:
+        self._lines: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=16)
+        self._stream = stream
+        self._stopped = threading.Event()
+        threading.Thread(target=self._read, daemon=True, name="symphlo-mcp-stdout").start()
+
+    def _read(self) -> None:
+        try:
+            while not self._stopped.is_set():
+                line = self._stream.readline()
+                if not self._offer(("line", line)) or not line:
+                    return
+        except BaseException as error:
+            self._offer(("error", error))
+
+    def _offer(self, item: tuple[str, object]) -> bool:
+        while not self._stopped.is_set():
             try:
-                message = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise RuntimeError("MCP server emitted invalid JSON on stdout") from error
-            if not isinstance(message, dict):
-                raise RuntimeError("MCP server emitted a non-object message")
-            if message.get("id") != request_id:
-                if "id" in message and "method" in message:
-                    raise RuntimeError("MCP server-to-client requests are unsupported in Local Alpha")
+                self._lines.put(item, timeout=0.1)
+                return True
+            except queue.Full:
                 continue
-            if "error" in message:
-                error = message["error"]
-                summary = error.get("message") if isinstance(error, dict) else str(error)
-                raise RuntimeError(f"MCP request failed: {summary}")
-            result = message.get("result")
-            if not isinstance(result, dict):
-                raise RuntimeError("MCP response result must be an object")
-            return result
-    finally:
-        selector.close()
+        return False
+
+    def get(self, timeout: float) -> str | None:
+        try:
+            kind, value = self._lines.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if kind == "error":
+            raise RuntimeError("MCP stdout reader failed") from value
+        return str(value)
+
+    def close(self) -> None:
+        self._stopped.set()
 
 
 def _close_process(process: subprocess.Popen[str]) -> None:

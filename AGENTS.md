@@ -24,7 +24,7 @@
 - An Agent is a first-class Node executor. It may keep its internal loop, while Symphlo owns observable inputs, effects, executor identity, events, accepted results, Context and Artifacts.
 - Symphlo guides Agent work through external task boundaries; it does not modify, expose or claim control over private Agent reasoning.
 - Loop ownership slides with explicit Node granularity: broad Agent Nodes preserve more Agent autonomy, while finer semantic boundaries give the Flow more orchestration, evidence and recovery responsibility.
-- Do not infer one model call from a small task. `Agent Node` may contain an opaque loop; a future atomic Model or Tool Node requires a distinct contract that truthfully guarantees one invocation.
+- Do not infer atomic work from a small task. `Agent Node` may contain an opaque loop; `model.task + model_cli` guarantees one adapter request, while `tool.task` guarantees one fixed semantic CLI, MCP or HTTP operation and records `symphlo.tool-call-evidence.v1`.
 - Flow controls `what / who / when / handoff`; an Agent controls `how` inside its Node boundary.
 - Flow definitions, Run state, Context, Artifacts and history are product truth. Agent sessions and conversations are not.
 - The public product must remain agent-agnostic and capability/adapter-driven.
@@ -45,10 +45,39 @@
 - Stable public contracts precede implementation.
 - DSL and public contracts are portable truth; visual editor state is not.
 - Runtime owns durable state transitions, retries, timeout, cancellation and audit.
+- Historical Run comparison is read-only and exact-version only: same Task, semantic
+  Flow hash and ordered Nodes. Public comparison may expose equality flags and reason
+  codes, never accepted payloads, payload hashes, paths or automatic root-cause claims.
+- Companion-facing Run tracking must use the exact, redacted
+  `symphlo.run-outcome.v1` read model. Do not make a companion consume full Evidence,
+  SQLite or `app-run.json`; the projection may expose bounded status/progress/Artifact
+  references, never accepted payloads, event bodies, error text or local paths.
+- Companion-triggered cancellation must use exact versioned Run/Flow identity and
+  reuse the Runtime-owned cancellation state machine. It must be explicit,
+  idempotent and terminal-state preserving; companions must not create their own
+  cancellation controller or infer cancellation from polling.
+- Companion Run history must be a bounded, exact Flow-scoped redacted projection
+  over existing durable Runs. Do not expose broad workspace summaries or create a
+  companion history store; opening a history item must return to the exact outcome
+  contract and must never imply a new admission.
+- Runtime owns effect admission. `write_local | write_external` requires an exact
+  pre-admission authorization bound to Flow hash, accepted input hash and pending
+  executable Node/effect scope; missing or stale authorization creates zero Run.
+- Only `artifact.task` resolved to `builtin.markdown-publication` is exempt as a
+  Runtime-owned Artifact write. Adapters and other executors cannot claim this exemption.
 - Adapters return versioned results and events; they never mutate Flow or Run truth directly.
+- `evaluation.task` is an explicit linear control boundary and must consume an
+  upstream candidate through a read-only `evaluator_cli`. A valid fail persists
+  bounded evidence, stops downstream work and suggests the producer as the repair
+  fork target; it never retries automatically and is never described as truth or
+  automatic root cause.
 - Local Alpha must not create a Local-only execution shortcut.
+- Integration bundles are loopback, exact-contract and preview-first. V1 may
+  create or reuse resources but must never overwrite, update or delete an
+  existing Capability/Flow; blocked plans create nothing, and handled partial
+  writes must roll back resources created by that request.
 - Case-specific semantics belong in Flow, Prompt, Capability, schema and eval, not in Runtime, scheduler, database or product-page forks.
-- Public claims must distinguish implemented evidence boundaries from future atomic LLM Nodes, branching loops, Node-level rerun/fork and debugger automation.
+- Public claims must distinguish the implemented linear Model/Tool/Evaluation Node boundaries and exact same-Flow Node fork from future branching loops, dynamic tool selection and automatic debugger repair.
 
 ## Validation
 

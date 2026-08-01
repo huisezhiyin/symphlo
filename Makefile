@@ -11,6 +11,7 @@ AGENT_MODEL ?=
 AGENT_TIMEOUT ?= 120
 RUNS ?= 2
 LIVE_RUNS ?= 1
+AUTHORIZE_WRITE_EFFECTS ?=
 CODEX_MODEL ?= gpt-5.4
 PUBLIC_DIR ?=
 
@@ -19,7 +20,7 @@ export PYTHONPATH := src
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor app desktop desktop-build desktop-check desktop-package desktop-smoke web-install web-build web-lint web-typecheck web-test web-check demo demo-open demo-codex demo-opencode public-tree source-check test check
+.PHONY: help doctor app desktop desktop-build desktop-check desktop-package desktop-smoke web-install web-build web-lint web-typecheck web-test web-check wheel demo demo-open demo-codex demo-opencode public-tree source-check test check
 
 help:
 	@printf '%s\n' \
@@ -31,6 +32,7 @@ help:
 		'  make desktop-check  Typecheck, test and build the Desktop shell' \
 		'  make desktop-package Build an unsigned macOS Symphlo.app' \
 		'  make web-check      Lint, typecheck, test and build the React App' \
+		'  make wheel          Build a local wheel with the complete Web App' \
 		'  make demo           Run the zero-credential balanced demo twice' \
 		'  make demo-open      Run the offline demo and open its Evidence App' \
 		'  make demo-codex     Run one live Codex-backed Flow' \
@@ -80,17 +82,20 @@ web-test: web-install
 
 web-check: web-lint web-typecheck web-test web-build
 
+wheel: web-build
+	$(UV) build --wheel --out-dir dist-python
+
 demo:
-	$(PYTHON_RUN) -m symphlo demo --workspace "$(CURDIR)" --granularity "$(GRANULARITY)" --topic "$(TOPIC)" --runs "$(RUNS)" $(if $(AGENT_COMMAND),--agent-command "$(AGENT_COMMAND)",) $(if $(AGENT),--agent "$(AGENT)",) $(if $(AGENT_MODEL),--agent-model "$(AGENT_MODEL)",) --agent-timeout "$(AGENT_TIMEOUT)" $(if $(STATE_DIR),--state-dir "$(STATE_DIR)",)
+	$(PYTHON_RUN) -m symphlo demo --workspace "$(CURDIR)" --granularity "$(GRANULARITY)" --topic "$(TOPIC)" --runs "$(RUNS)" $(if $(AGENT_COMMAND),--agent-command "$(AGENT_COMMAND)",) $(if $(AGENT),--agent "$(AGENT)",) $(if $(AGENT_MODEL),--agent-model "$(AGENT_MODEL)",) --agent-timeout "$(AGENT_TIMEOUT)" $(if $(AUTHORIZE_WRITE_EFFECTS),--authorize-write-effects,) $(if $(STATE_DIR),--state-dir "$(STATE_DIR)",)
 
 demo-open:
-	$(PYTHON_RUN) -m symphlo demo --workspace "$(CURDIR)" --granularity "$(GRANULARITY)" --topic "$(TOPIC)" --runs "$(RUNS)" $(if $(AGENT_COMMAND),--agent-command "$(AGENT_COMMAND)",) $(if $(AGENT),--agent "$(AGENT)",) $(if $(AGENT_MODEL),--agent-model "$(AGENT_MODEL)",) --agent-timeout "$(AGENT_TIMEOUT)" --open $(if $(STATE_DIR),--state-dir "$(STATE_DIR)",)
+	$(PYTHON_RUN) -m symphlo demo --workspace "$(CURDIR)" --granularity "$(GRANULARITY)" --topic "$(TOPIC)" --runs "$(RUNS)" $(if $(AGENT_COMMAND),--agent-command "$(AGENT_COMMAND)",) $(if $(AGENT),--agent "$(AGENT)",) $(if $(AGENT_MODEL),--agent-model "$(AGENT_MODEL)",) --agent-timeout "$(AGENT_TIMEOUT)" $(if $(AUTHORIZE_WRITE_EFFECTS),--authorize-write-effects,) --open $(if $(STATE_DIR),--state-dir "$(STATE_DIR)",)
 
 demo-codex:
-	$(MAKE) demo AGENT=codex AGENT_MODEL="$(CODEX_MODEL)" AGENT_TIMEOUT=300 RUNS="$(LIVE_RUNS)"
+	$(MAKE) demo AGENT=codex AGENT_MODEL="$(CODEX_MODEL)" AGENT_TIMEOUT=300 RUNS="$(LIVE_RUNS)" AUTHORIZE_WRITE_EFFECTS=1
 
 demo-opencode:
-	$(MAKE) demo AGENT=opencode AGENT_TIMEOUT=300 RUNS="$(LIVE_RUNS)"
+	$(MAKE) demo AGENT=opencode AGENT_TIMEOUT=300 RUNS="$(LIVE_RUNS)" AUTHORIZE_WRITE_EFFECTS=1
 
 public-tree:
 	@test -n "$(PUBLIC_DIR)" || (printf '%s\n' 'error: PUBLIC_DIR is required' >&2; exit 2)

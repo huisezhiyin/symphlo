@@ -13,9 +13,21 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .console_compat import ConsoleCompat
+from .effect_authorization import EffectAuthorizationRequired
+from .integration_bundles import IntegrationBundleService
+from .run_history import validate_run_history_query
 from .workspace import LocalWorkspace, RunConflictError
 
 MAX_REQUEST_BYTES = 65_536
+PACKAGED_WEB_ROOT = Path(__file__).resolve().parent / "_web"
+RUN_REQUEST_VERSION = "symphlo.run-request.v1"
+RUN_ADMISSION_VERSION = "symphlo.run-admission.v1"
+RUN_AUTHORIZED_REQUEST_VERSION = "symphlo.authorized-run-request.v1"
+RUN_FORK_REQUEST_VERSION = "symphlo.run-fork-request.v1"
+RUN_FORK_AUTHORIZED_REQUEST_VERSION = "symphlo.authorized-run-fork-request.v1"
+RUN_FORK_ADMISSION_VERSION = "symphlo.run-fork-admission.v1"
+RUN_CANCELLATION_REQUEST_VERSION = "symphlo.run-cancellation-request.v1"
+RUN_CANCELLATION_VERSION = "symphlo.run-cancellation.v1"
 
 
 class LocalAppServer(ThreadingHTTPServer):
@@ -32,6 +44,7 @@ class LocalAppServer(ThreadingHTTPServer):
             f"http://{sample_host}:{self.server_port}"
         )
         self.console = ConsoleCompat(workspace)
+        self.integration_bundles = IntegrationBundleService(workspace, self.console)
         self.web_root = web_root.resolve(strict=True)
 
     def server_close(self) -> None:
@@ -110,6 +123,57 @@ class LocalAppHandler(BaseHTTPRequestHandler):
             if route == "/api/v1/runs":
                 self._send_json({"items": self.server.workspace.list_runs()})
                 return
+            if route == "/api/v1/run-history":
+                try:
+                    flow_ids, limit = validate_run_history_query(
+                        parse_qs(request.query, keep_blank_values=True)
+                    )
+                except ValueError as error:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+                self._send_json(self.server.workspace.run_history(flow_ids, limit))
+                return
+            if route.startswith("/api/v1/runs/") and route.endswith("/comparison"):
+                left_run_id = (
+                    route.removeprefix("/api/v1/runs/")
+                    .removesuffix("/comparison")
+                    .strip("/")
+                )
+                query = parse_qs(request.query, keep_blank_values=True)
+                other_run_ids = query.get("other_run_id", [])
+                if set(query) != {"other_run_id"} or len(other_run_ids) != 1:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST,
+                        "exactly one other_run_id query parameter is required",
+                    )
+                    return
+                try:
+                    report = self.server.workspace.compare_runs(
+                        left_run_id,
+                        other_run_ids[0],
+                    )
+                except ValueError as error:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+                self._send_json(report)
+                return
+            if route.startswith("/api/v1/runs/") and route.endswith("/outcome"):
+                if request.query:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST,
+                        "Run outcome does not accept query parameters",
+                    )
+                    return
+                run_id = (
+                    route.removeprefix("/api/v1/runs/")
+                    .removesuffix("/outcome")
+                    .strip("/")
+                )
+                if not run_id:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "run_id must not be empty")
+                    return
+                self._send_json(self.server.workspace.run_outcome(run_id))
+                return
             if route.startswith("/api/v1/runs/") and route.endswith("/evidence"):
                 run_id = route.removeprefix("/api/v1/runs/").removesuffix("/evidence").strip("/")
                 self._send_json(self.server.workspace.run_evidence(run_id))
@@ -129,9 +193,19 @@ class LocalAppHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
-        route = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        route = parsed.path
         try:
             payload = self._read_json_body()
+            if route == "/api/v1/integration-bundles/preview":
+                self._send_json(self.server.integration_bundles.preview(payload))
+                return
+            if route == "/api/v1/integration-bundles":
+                self._send_json(
+                    self.server.integration_bundles.install(payload),
+                    HTTPStatus.CREATED,
+                )
+                return
             if route == "/api/v1/samples/http-json":
                 self._send_json(self._http_sample(payload))
                 return
@@ -204,12 +278,156 @@ class LocalAppHandler(BaseHTTPRequestHandler):
                 resource = self.server.workspace.run_task(
                     self._string(payload, "task_id"),
                     self._string(payload, "executor"),
+                    payload.get("effect_authorization"),
                 )
                 self._send_json(resource, HTTPStatus.ACCEPTED)
+                return
+            if route.startswith("/api/v1/runs/") and route.endswith("/cancellations"):
+                if parsed.query or parsed.fragment:
+                    raise ValueError("run cancellation does not accept query or fragment")
+                run_id = unquote(
+                    route.removeprefix("/api/v1/runs/")
+                    .removesuffix("/cancellations")
+                    .strip("/")
+                )
+                if not run_id:
+                    raise ValueError("run_id must not be empty")
+                if set(payload) != {"contract_version", "flow_id"}:
+                    raise ValueError("run cancellation request must contain the exact v1 keys")
+                if payload["contract_version"] != RUN_CANCELLATION_REQUEST_VERSION:
+                    raise ValueError("unsupported run cancellation request contract_version")
+                flow_id = payload["flow_id"]
+                if (
+                    not isinstance(flow_id, str)
+                    or not flow_id
+                    or flow_id != flow_id.strip()
+                    or len(flow_id) > 128
+                ):
+                    raise ValueError("flow_id must be a non-empty bounded string")
+                before = self.server.workspace.run_outcome(run_id)
+                if before["flow_id"] != flow_id:
+                    raise RunConflictError("run cancellation flow_id does not match the Run")
+                accepted = False
+                outcome = before
+                if before["status"] == "running":
+                    self.server.workspace.cancel_run(run_id)
+                    outcome = self.server.workspace.run_outcome(run_id)
+                    accepted = outcome["status"] in {"cancel_requested", "cancelled"}
+                self._send_json(
+                    {
+                        "contract_version": RUN_CANCELLATION_VERSION,
+                        "run_id": run_id,
+                        "flow_id": flow_id,
+                        "status": outcome["status"],
+                        "accepted": accepted,
+                    },
+                    HTTPStatus.ACCEPTED if accepted else HTTPStatus.OK,
+                )
+                return
+            if route.startswith("/api/v1/runs/") and route.endswith("/forks"):
+                parent_run_id = unquote(
+                    route.removeprefix("/api/v1/runs/")
+                    .removesuffix("/forks")
+                    .strip("/")
+                )
+                if not parent_run_id:
+                    raise ValueError("parent_run_id must not be empty")
+                contract_version = payload.get("contract_version")
+                if contract_version == RUN_FORK_REQUEST_VERSION:
+                    if set(payload) != {"contract_version", "from_node_id"}:
+                        raise ValueError("run fork request must contain the exact v1 keys")
+                    effect_authorization = None
+                elif contract_version == RUN_FORK_AUTHORIZED_REQUEST_VERSION:
+                    if set(payload) != {
+                        "contract_version",
+                        "from_node_id",
+                        "effect_authorization",
+                    }:
+                        raise ValueError(
+                            "authorized run fork request must contain the exact v1 keys"
+                        )
+                    effect_authorization = payload["effect_authorization"]
+                else:
+                    raise ValueError("unsupported run fork request contract_version")
+                from_node_id = payload["from_node_id"]
+                if not isinstance(from_node_id, str) or not from_node_id.strip():
+                    raise ValueError("from_node_id must be a non-empty string")
+                forked = self.server.console.fork(
+                    parent_run_id,
+                    from_node_id,
+                    effect_authorization,
+                )
+                self._send_json(
+                    {
+                        "contract_version": RUN_FORK_ADMISSION_VERSION,
+                        "parent_run_id": parent_run_id,
+                        "run_id": forked["run_id"],
+                        "from_node_id": from_node_id.strip(),
+                        "status": forked["status"],
+                    },
+                    HTTPStatus.ACCEPTED,
+                )
+                return
+            if route.startswith("/api/v1/flows/") and route.endswith("/runs"):
+                flow_id = unquote(
+                    route.removeprefix("/api/v1/flows/")
+                    .removesuffix("/runs")
+                    .strip("/")
+                )
+                if not flow_id:
+                    raise ValueError("flow_id must not be empty")
+                contract_version = payload.get("contract_version")
+                if contract_version == RUN_REQUEST_VERSION:
+                    if set(payload) != {"contract_version", "executor", "inputs"}:
+                        raise ValueError("run request must contain the exact v1 keys")
+                    effect_authorization = None
+                elif contract_version == RUN_AUTHORIZED_REQUEST_VERSION:
+                    if set(payload) != {
+                        "contract_version",
+                        "executor",
+                        "inputs",
+                        "effect_authorization",
+                    }:
+                        raise ValueError(
+                            "authorized run request must contain the exact v1 keys"
+                        )
+                    effect_authorization = payload["effect_authorization"]
+                else:
+                    raise ValueError("unsupported run request contract_version")
+                executor = payload["executor"]
+                if not isinstance(executor, str) or executor not in {
+                    "deterministic",
+                    "codex",
+                    "opencode",
+                }:
+                    raise ValueError("unsupported executor")
+                inputs = payload["inputs"]
+                if not isinstance(inputs, dict):
+                    raise ValueError("inputs must be an object")
+                saved = self.server.console.resolve_portable_flow(flow_id)
+                admitted = self.server.console.run_saved(
+                    str(saved["flow_id"]),
+                    {
+                        "executor": executor,
+                        "inputs": inputs,
+                        "effect_authorization": effect_authorization,
+                    },
+                )["run"]
+                self._send_json(
+                    {
+                        "contract_version": RUN_ADMISSION_VERSION,
+                        "flow_id": flow_id,
+                        "run_id": admitted["run_id"],
+                        "status": admitted["status"],
+                    },
+                    HTTPStatus.ACCEPTED,
+                )
                 return
             self._send_error(HTTPStatus.NOT_FOUND, "API route not found")
         except KeyError:
             self._send_error(HTTPStatus.NOT_FOUND, "resource not found")
+        except EffectAuthorizationRequired as error:
+            self._send_json(error.challenge, HTTPStatus.PRECONDITION_REQUIRED)
         except RunConflictError as error:
             self._send_error(HTTPStatus.CONFLICT, str(error))
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
@@ -355,10 +573,48 @@ def create_local_app(
 ) -> LocalAppServer:
     workspace = workspace.resolve(strict=True)
     state_root = state_root.resolve()
-    resolved_web_root = (web_root or workspace / "apps" / "web" / "dist").resolve()
-    if not (resolved_web_root / "flow-console" / "index.html").is_file():
-        raise RuntimeError("Local App web assets are missing; run `make web-build`")
+    resolved_web_root = _resolve_web_root(workspace, web_root)
     return LocalAppServer((host, port), LocalWorkspace(workspace, state_root), resolved_web_root)
+
+
+def _resolve_web_root(
+    workspace: Path,
+    web_root: Path | None = None,
+    *,
+    packaged_web_root: Path | None = None,
+) -> Path:
+    """Resolve explicit, development, then installed Local App assets."""
+
+    if web_root is not None:
+        explicit = web_root.resolve()
+        # Explicit roots are also used by focused API tests and embedders that
+        # intentionally provide a minimal index document. Preserve that public
+        # injection boundary while validating complete release candidates below.
+        if (explicit / "flow-console" / "index.html").is_file():
+            return explicit
+        raise RuntimeError(f"Local App web assets are missing from explicit root: {explicit}")
+
+    development = (workspace / "apps" / "web" / "dist").resolve()
+    if _has_local_app_assets(development):
+        return development
+    packaged = (packaged_web_root or PACKAGED_WEB_ROOT).resolve()
+    if _has_local_app_assets(packaged):
+        return packaged
+    raise RuntimeError(
+        "Local App web assets are missing; run `make web-build` in a source "
+        "checkout or install a wheel that includes them"
+    )
+
+
+def _has_local_app_assets(root: Path) -> bool:
+    required = (
+        "flow-console/index.html",
+        "flow-console/assets/app.js",
+        "flow-console/assets/styles.css",
+        "flow-console/assets/flow-canvas.js",
+        "flow-console/assets/flow-canvas.css",
+    )
+    return all((root / relative).is_file() for relative in required)
 
 
 def serve_local_app(

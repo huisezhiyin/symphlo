@@ -54,12 +54,21 @@ It is a design and maintenance choice about how much of the high-level Agent
 Loop is worth externalizing. Every externalized boundary persists accepted
 input, executor, effects, events, result, handoff and Artifacts.
 
-At the deliberate fine-grained limit, an Agentic Flow could use explicitly
-atomic model-inference and tool-invocation Nodes so that the Flow owns the
-decision loop. That is a different truthful executor contract, not inspection
-or decomposition of an existing Agent's private loop. General atomic LLM
-Nodes, branching loops and automatic conversion are not implemented in this
-Local Alpha.
+At the deliberate fine-grained limit, a Flow can now bind an explicit
+`model.task` to a saved `model_cli`. Each such Node sends exactly one bounded
+`symphlo.model-inference-request.v1` to one adapter process and accepts one
+exact `symphlo.model-inference-result.v1`. This lets a linear Flow own the
+sequence and handoffs between model calls without inspecting or decomposing an
+existing Agent's private loop. The adapter remains responsible for truthfully
+mapping that one request to one provider inference.
+
+An explicit `tool.task` can similarly bind one saved `cli`, `mcp_stdio` or
+`http` Capability. It executes one fixed semantic operation and persists a
+`symphlo.tool-call-evidence.v1` envelope with the Capability identity,
+fingerprint and transport. MCP still performs its required handshake around one
+`tools/call`; the contract promises one semantic tool operation, not one wire
+message. General branching model/tool loops, dynamic tool selection and
+automatic granularity conversion are not implemented in this Local Alpha.
 
 Externalization also opens execution supply. Each boundary can deliberately
 bind the right Agent, HTTP service, MCP tool, CLI, local script or Human.
@@ -123,9 +132,26 @@ Artifact outside the repository beneath the App's user-data directory.
 For Web-only development, `make app` serves the same Console and Runtime at
 `http://127.0.0.1:8765`. It is a development profile, not a different product.
 
+To verify the installable Python distribution locally, run `make wheel`. This
+first builds the reviewed Vite App, then creates `dist-python/*.whl` with the
+complete `flow-console`, the deterministic session-protocol fixture and a
+`symphlo` command. After installing that wheel, an existing empty directory is
+enough to start the loopback App:
+
+```bash
+symphlo app --workspace /path/to/local-workspace
+```
+
+The installed App does not need the source checkout, Node.js or pnpm at
+runtime. Building the wheel still requires the locked Web toolchain. This is a
+local distribution verification path, not a published package, signed
+installer, stable-version claim or bundled external Agent.
+
 The native Desktop acceptance target is currently macOS on Apple silicon.
 The Runtime, terminal demo and Web App use portable contracts, and CI targets
-Ubuntu 24.04, but Windows and a native Linux package have not been validated.
+Ubuntu 24.04. The full Python Runtime suite, including Agent process-tree and
+session cancellation plus MCP stdio, also passes on a Windows local checkout;
+native Windows Desktop and native Linux package acceptance remain unvalidated.
 `make desktop-package` produces an unsigned macOS App; signing, notarization,
 installers and automatic updates are outside this Alpha.
 
@@ -232,9 +258,31 @@ Artifacts and comparable Runs make it possible to isolate an unstable phase,
 replace its Agent or tool and measure the result without exposing private
 reasoning.
 
-The current Alpha provides the evidence foundation and cross-Run comparison.
-Node-level fork/rerun, automated evaluation, repair and full failure
+The current Alpha provides the evidence foundation, cross-Run comparison, an
+explicit Evaluation gate and an exact same-Flow Node-level fork. A read-only
+evaluator can reject one accepted candidate, stop downstream publication and
+point repair at the candidate producer. The user can then create a child Run
+that reuses its accepted prefix and re-executes generation, evaluation and
+downstream work. Automatic retry, automatic repair and full failure
 localization remain future debugger capabilities.
+
+The Runs page can now compare two distinct terminal Runs from the same Task and
+exact Flow hash. It shows whether each Node changed in accepted input, outcome,
+executor, effects, accepted result, evidence level or execution/reuse mode, then
+identifies the first durable boundary with a substantive difference. The report
+contains no accepted payload, payload hash, Context, event body or Artifact path.
+It tells you where observable evidence first diverged—not why an Agent reasoned a
+certain way and not an automatically proven root cause.
+
+The same read-only contract is available to local clients:
+
+```text
+GET /api/v1/runs/{left_run_id}/comparison?other_run_id={right_run_id}
+```
+
+Parent/fork comparisons treat a reused prefix as the same accepted outcome while
+still showing its changed execution mode, so the rerun target can become the first
+substantive divergence instead of falsely blaming the reused prefix.
 
 ### Choose the right operating model
 
@@ -247,6 +295,168 @@ localization remain future debugger capabilities.
 These layers compose. A Symphlo Node may invoke a Skill inside an Agent's normal
 loop. The distinction is ownership: execution knowledge can remain inside the
 Node while accepted task state remains outside it.
+
+An Agent or another client may recommend one of these operating models, but a
+recommendation is not Run truth. It must identify observable task properties,
+distinguish a suggested granularity from an actually available Flow, and never
+silently execute or label a compact Flow as balanced/fine. Symphlo begins owning
+truth only when an explicit saved Flow is validated and a Run is admitted.
+
+### Admit a confirmed client handoff
+
+A local client may turn its already-confirmed plan into a real Run through the
+generic versioned endpoint:
+
+```text
+POST /api/v1/flows/{portable_flow_id}/runs
+{
+  "contract_version": "symphlo.run-request.v1",
+  "executor": "deterministic",
+  "inputs": { ... }
+}
+
+202 Accepted
+{
+  "contract_version": "symphlo.run-admission.v1",
+  "flow_id": "<portable_flow_id>",
+  "run_id": "<durable-run-id>",
+  "status": "running"
+}
+```
+
+This route does not install, generate or select a Flow by similarity. It
+requires exactly one saved Flow whose portable DSL `id` matches the request;
+zero matches return not found and multiple matches fail as ambiguous. Declared
+inputs are still validated by the existing saved-Flow compiler and the same
+Runtime admission path. The HTTP request is the caller's explicit execution
+action—not proof that an earlier recommendation had authority—and the Local
+API remains loopback-only.
+
+The companion Personal Assistant now exposes this boundary through its own
+loopback plan UI: it renders the exact task inputs, suggested granularity,
+effects and Flow availability, invalidates the plan when form inputs change,
+and submits this endpoint only after an explicit checkbox and button action.
+That UI remains a client-owned authority surface; Symphlo still receives only
+the generic versioned request and admits it through the normal saved-Flow path.
+
+After admission, a companion that already owns the exact `run_id` can track the
+Run without consuming full Evidence:
+
+```text
+GET /api/v1/runs/{run_id}/outcome
+```
+
+The exact `symphlo.run-outcome.v1` response contains only Run/Flow identity,
+terminal or active status, settled/total progress, ordered Node status, accepted
+Artifact references and a bounded failure classification. It never returns
+accepted input/output, Context, event bodies, error messages or local paths.
+Successful clients may fetch the referenced Artifact from the existing versioned
+content endpoint and verify its declared SHA-256. The Personal Assistant uses this
+contract to show Node progress and a verified `result.md` in its own page; it does
+not read Symphlo storage or reconstruct Runtime state.
+
+The same exact identity can request cancellation without using the Console's
+private route:
+
+```text
+POST /api/v1/runs/{run_id}/cancellations
+{ "contract_version": "symphlo.run-cancellation-request.v1", "flow_id": "<portable_flow_id>" }
+```
+
+The exact `symphlo.run-cancellation.v1` receipt binds `run_id` and `flow_id` and
+reports the actual status. A newly accepted durable transition returns HTTP 202
+with `accepted=true`; repeats, natural-completion races and terminal Runs return
+HTTP 200 with `accepted=false`. Terminal state is never rewritten. This public
+route reuses the existing Runtime cancellation token and Evidence transitions;
+it is not a second controller.
+
+A companion can also recover a bounded, redacted history for exact portable Flow
+identities:
+
+```text
+GET /api/v1/run-history?flow_id=<portable_flow_id>&limit=20
+```
+
+Repeated `flow_id` values query up to 32 exact Flows and the limit is 1..100.
+The exact `symphlo.run-history.v1` response is newest first and contains only
+Run/Flow identity, status, timestamps, settled/total Node counts and optional
+fork lineage. It excludes task title/topic, inputs, Flow hash, executor, Node
+identity, Artifacts, failures, events and local paths. Each item is validated
+through the same outcome projection; malformed matching history fails closed.
+
+If the resolved Flow contains `write_local` or `write_external`, the first request
+does not create a Run. The Local API returns HTTP 428 with
+`symphlo.effect-authorization-required.v1`, binding the exact Flow semantic hash,
+accepted input hash and pending Node/effect scope. A local client must show that
+scope to the user and retry with `symphlo.authorized-run-request.v1` plus the exact
+server-issued `symphlo.effect-authorization.v1`. Stale inputs, changed Flows and
+tampered scopes fail closed with zero Run.
+
+This token records explicit intent; it is not login, identity or a signature. The
+Web Console performs the challenge/confirm/retry interaction automatically. The
+terminal command profile is equally explicit:
+
+```bash
+make demo AGENT_COMMAND="..." AUTHORIZE_WRITE_EFFECTS=1
+```
+
+Runtime-owned Markdown Artifact publication remains exempt; arbitrary Agent, Tool
+or Model executors cannot claim that exemption. Read-only Personal Assistant Flows
+declare exact non-write effects and therefore keep their existing one-confirmation
+client experience.
+
+### Fork a failed Run from one Node
+
+The Runs page exposes this action only for a failed Run and requires an effects
+confirmation. The same strict loopback contract is available to local clients:
+
+```text
+POST /api/v1/runs/{parent_run_id}/forks
+{
+  "contract_version": "symphlo.run-fork-request.v1",
+  "from_node_id": "failed-node-id"
+}
+
+202 Accepted
+{
+  "contract_version": "symphlo.run-fork-admission.v1",
+  "parent_run_id": "<immutable-parent>",
+  "run_id": "<new-child-run>",
+  "from_node_id": "failed-node-id",
+  "status": "running"
+}
+```
+
+Forking is fail-closed: the parent must be terminal, the current saved Flow
+must have the exact parent semantic hash, every prefix Node must have succeeded,
+and an Agent session group may not cross the fork boundary. Prefix Nodes appear
+as `reused` with zero attempts. Their effects do not repeat; the selected Node
+and downstream effects do. The parent Run and its Artifacts are never changed
+or copied.
+
+### Gate a candidate without changing its Agent
+
+An explicit Evaluation Node lets a Flow control whether one accepted candidate
+may continue:
+
+```text
+producer Agent or Model
+  -> evaluation.task bound to read-only evaluator_cli
+       pass -> downstream Node / Artifact
+       fail -> durable evidence + stopped suffix
+              -> user-confirmed fork from producer
+```
+
+The evaluator receives the immutable Flow input and immediate candidate through
+`symphlo.evaluation-request.v1`, then returns exact
+`symphlo.evaluation-result.v1` evidence. A pass must have no findings; a fail
+must have one or more bounded, uniquely coded findings. Evaluator capabilities
+cannot declare local or external write effects.
+
+A valid fail does not publish an Artifact and does not trigger an automatic
+loop. The Runs page says that evaluation was rejected, shows a bounded summary,
+and targets the producer rather than merely rerunning the evaluator. The
+evaluator's judgment is orchestration evidence, not proven truth or root cause.
 
 ## Multi-Agent without theatre
 
@@ -267,6 +477,22 @@ used the same opaque external conversation and different turn references.
 Nodes without a group remain one-shot, and a grouped Node bound to a one-shot
 executor fails validation. Conversation continuity is executor evidence, not a
 replacement for accepted Context, Run state or Artifacts.
+
+A concrete companion integration now uses the same saved one-shot
+`agent_cli` Capability for two different Action Items roles. The first Node
+accepts documents and returns a strict, evidence-backed candidate envelope;
+the second receives that durable `agent_output` handoff, re-reads the original
+documents and publishes a reviewed `result.md`. This proves that role-specific
+Agent Nodes and inspectable handoffs can externalize `extract -> review`
+without changing either Agent's private loop or adding Case semantics to the
+Runtime. It does not claim heterogeneous providers or real-model quality.
+
+The same companion also provides a fine-grained alternative with two explicit
+`model.task` Nodes. Its adapter handles one candidate operation or one review
+operation per request and calls its configured `Model.complete` exactly once.
+The balanced Flow remains the autonomous two-Agent option; the fine Flow moves
+the observable `extract -> review` sequence into Flow ownership. They are two
+truthful operating modes, not aliases.
 
 The terminal demo uses deterministic role simulators and labels every Node
 `E1_DETERMINISTIC`. The Desktop Golden Flow additionally invokes the fictional
@@ -329,14 +555,37 @@ adapter receives a bounded JSON request over stdin and returns final text plus
 opaque conversation and turn references. Provider commands and credentials
 remain outside the public source tree.
 
-The Local Alpha supports four kinds:
+The Local Alpha supports five kinds:
 
 | Kind | Node | Contract |
 | --- | --- | --- |
 | `agent_cli` | `agent.task` | bounded prompt over stdin or final argv |
-| `cli` | `capability.task` | one JSON request on stdin; JSON or text on stdout |
-| `mcp_stdio` | `capability.task` | MCP initialize, `tools/list`, `tools/call`, shutdown |
-| `http` | `capability.task` | fixed GET/POST URL and bounded JSON response |
+| `model_cli` | `model.task` | one exact model-inference request/result over stdin |
+| `cli` | `tool.task` | one JSON request on stdin; JSON or text on stdout |
+| `mcp_stdio` | `tool.task` | MCP initialize and one `tools/call` in a bounded session |
+| `http` | `tool.task` | one fixed GET/POST request and bounded JSON response |
+
+`capability.task` remains a compatibility alias for previously saved non-Agent,
+non-Model Flows. New Canvas Nodes and public examples use `tool.task` so the
+Flow and Run Evidence identify the tool boundary directly.
+
+A saved Flow may declare typed `inputs`. At Run admission, Symphlo resolves
+declared defaults and caller-supplied values, rejects undeclared or mismatched
+values, and adds the accepted values to durable Node Context. The historical
+`report_focus` input still maps to the writing demo's `topic`; other declared
+inputs remain provider-neutral Context fields.
+
+The Runs page turns those declarations into a generated form for `string`,
+`number`, `integer`, `boolean`, `object` and `array` values. It shows each
+field's description and required/default state, parses JSON fields locally and
+blocks invalid input before Run creation. This lets a Case-owned Flow expose a
+small, office-friendly task form without adding its business semantics to
+Symphlo.
+
+The built-in Markdown publisher preserves the canonical writing contract as
+`article.md`. For a generic Agent Node that returns only `agent_output`, it
+publishes the accepted text as `result.md`. This lets user-local Agents prove a
+non-demo Flow without adding their Case semantics to the Runtime.
 
 Every Local Runtime also exposes a credential-free `http.sample-json`
 Capability. It sends accepted context through a real loopback POST and returns
@@ -357,6 +606,30 @@ of silently running a different built-in Flow.
 
 The repository includes credential-free CLI and MCP fixtures documented in
 [`examples/capabilities/README.md`](examples/capabilities/README.md) for contract testing.
+
+### Install a companion integration bundle
+
+A trusted local companion can install a reviewed set of Capabilities and portable
+Flows without copying JSON by hand. Symphlo first returns a read-only plan that
+classifies every resource as `create`, `reuse` or `conflict`:
+
+```text
+POST /api/v1/integration-bundles/preview
+POST /api/v1/integration-bundles
+```
+
+The install request must repeat the canonical bundle hash and the exact
+server-derived confirmation phrase. Symphlo recomputes the whole plan while
+holding the local mutation boundary, refuses blocked plans, and never overwrites,
+updates or deletes an existing resource in v1. Compatible definitions are reused
+idempotently; the first conflicting Capability or Flow keeps the install blocked.
+
+Preview validates Flows against the proposed post-install Capability set before
+anything is saved. If a handled install request fails after creating resources,
+Symphlo rolls back the resources created by that request. This is request-level
+rollback, not a crash-recovery journal or a remote package marketplace. The API
+remains loopback-only and the companion remains responsible for the bundle's
+publisher, contents and user-facing consent surface.
 
 ### Bind another command executor
 
@@ -424,20 +697,30 @@ Implemented now:
 - immutable linear Flow and exact executor resolution;
 - SQLite Run, Node, Context, Event and Artifact evidence;
 - asynchronous live Run admission, durable cancellation and process-boundary cleanup;
+- exact same-Flow Node-level fork with immutable lineage and reused-prefix evidence;
+- exact same-Flow terminal Run comparison with redacted per-Node differences and first-divergence location;
+- exact redacted `symphlo.run-outcome.v1` tracking for companion-owned Runs and accepted Artifact references;
+- explicit `evaluation.task -> evaluator_cli` pass/fail control with durable rejection evidence and producer-targeted repair;
 - optional same-Run Agent session groups with persisted bind/reuse evidence;
+- explicit atomic `model.task` and `tool.task` boundaries with versioned accepted evidence;
+- Runtime-owned pre-admission authorization for exact `write_local | write_external` scopes, including fork suffixes;
 - compact, balanced and fine multi-Agent writing profiles;
 - deterministic offline executors, live-validated Codex/OpenCode presets and generic E2 stdio commands;
 - a user-local Capability Catalog with Agent CLI discovery and manual CLI, MCP stdio and HTTP bindings;
+- exact loopback integration-bundle preview/install with create/reuse/conflict planning, explicit confirmation and request-failure rollback;
 - an App-owned React Home / Flow / Runs product with a versioned loopback Local API;
 - a ReactFlow Canvas whose supported saved linear graph is the exact Runtime Flow, plus a real evidence workspace for Run switching, ordered events, Context, Node results and Artifacts;
 - zero-dependency command help, safe readiness checks and concise expected-error output;
+- a locally buildable Python wheel carrying the complete Local App assets and
+  deterministic session fixture, with an installed `symphlo` entry point;
 - zero-credential Quick Start plus Python and strict TypeScript tests.
 
-Not implemented yet: provider SDK adapters, retries, resume/repair, branching,
-parallelism, approvals, a general graph builder, remote Control Plane
-or Server deployment. General atomic LLM Nodes, automatic granularity
-conversion, Node-level Run fork/rerun and a complete Agent debugging suite are
-also outside this Alpha. The current Local API is versioned but loopback-only.
+Not implemented yet: provider SDK adapters, automatic retries/repair, branching,
+parallelism, general mid-Run or remote approvals, a general graph builder, remote Control Plane
+or Server deployment. General atomic model/tool decision loops, dynamic tool
+selection, automatic granularity conversion, changed-Flow replay and a complete Agent
+debugging suite are also outside this Alpha. The current Local API is versioned
+but loopback-only.
 The Canvas is an App-owned editor for the supported linear subset of a portable
 Flow contract; persisted Flow DSL and Runtime evidence, not React state, remain
 the source of truth.

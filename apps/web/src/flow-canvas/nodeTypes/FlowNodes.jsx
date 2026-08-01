@@ -2,7 +2,9 @@ import {Handle, Position} from "@xyflow/react";
 
 const labels = {
   agent: "Agent",
+  tool: "Tool",
   capability: "Capability",
+  evaluation: "Evaluation",
   sleep: "Sleep",
   if: "If",
   for: "For",
@@ -17,6 +19,14 @@ export function AgentNode(props) {
 
 export function CapabilityNode(props) {
   return <BaseNode {...props} kind="capability" badge="bound local capability" />;
+}
+
+export function ToolNode(props) {
+  return <BaseNode {...props} kind="tool" badge="one explicit tool operation" />;
+}
+
+export function EvaluationNode(props) {
+  return <BaseNode {...props} kind="evaluation" badge="pass/fail control evidence" />;
 }
 
 export function SleepNode(props) {

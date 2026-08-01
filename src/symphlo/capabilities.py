@@ -16,9 +16,13 @@ from urllib.parse import urlsplit
 
 from .contracts import Effect, JsonObject, canonical_json
 
-CapabilityKind = Literal["agent_cli", "cli", "mcp_stdio", "http"]
+CapabilityKind = Literal[
+    "agent_cli", "model_cli", "evaluator_cli", "cli", "mcp_stdio", "http"
+]
 CAPABILITY_KINDS: tuple[CapabilityKind, ...] = (
     "agent_cli",
+    "model_cli",
+    "evaluator_cli",
     "cli",
     "mcp_stdio",
     "http",
@@ -38,6 +42,16 @@ DEFAULT_EFFECTS: dict[CapabilityKind, tuple[Effect, ...]] = {
         Effect.READ_EXTERNAL,
         Effect.WRITE_LOCAL,
         Effect.WRITE_EXTERNAL,
+    ),
+    "model_cli": (
+        Effect.EXECUTE_PROCESS,
+        Effect.READ_LOCAL,
+        Effect.READ_EXTERNAL,
+    ),
+    "evaluator_cli": (
+        Effect.EXECUTE_PROCESS,
+        Effect.READ_LOCAL,
+        Effect.READ_EXTERNAL,
     ),
     "cli": (Effect.EXECUTE_PROCESS, Effect.READ_LOCAL, Effect.WRITE_LOCAL),
     "mcp_stdio": (
@@ -219,10 +233,17 @@ def normalize_capability(draft: JsonObject) -> CapabilityDefinition:
     if source not in {"manual", "discovered", "sample"}:
         raise ValueError("Capability source must be manual, discovered, or sample")
     description = str(draft.get("description", "")).strip()[:500]
-    timeout = draft.get("timeout_seconds", 120 if kind == "agent_cli" else 30)
+    timeout = draft.get(
+        "timeout_seconds",
+        120 if kind in {"agent_cli", "model_cli", "evaluator_cli"} else 30,
+    )
     if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 600:
         raise ValueError("timeout_seconds must be an integer between 1 and 600")
     effects = _normalize_effects(draft.get("effects"), kind)
+    if kind == "evaluator_cli" and any(
+        effect in {Effect.WRITE_LOCAL, Effect.WRITE_EXTERNAL} for effect in effects
+    ):
+        raise ValueError("evaluator_cli must be read-only")
     config_value = draft.get("config")
     if not isinstance(config_value, dict):
         raise ValueError("config must be an object")
@@ -338,6 +359,7 @@ def _discover_descriptor_agents(descriptor_path: Path) -> list[JsonObject]:
             "probe_args",
             "version_args",
             "timeout_seconds",
+            "effects",
         }
         unknown = sorted(set(item) - allowed)
         if unknown:
@@ -371,6 +393,7 @@ def _discover_descriptor_agents(descriptor_path: Path) -> list[JsonObject]:
                 "source": "discovered",
                 "description": item.get("description", "Discovered local Agent CLI."),
                 "timeout_seconds": item.get("timeout_seconds", 300),
+                "effects": item.get("effects"),
                 "config": config,
             }
         )
@@ -410,7 +433,7 @@ def probe_record(ok: bool, summary: str, details: JsonObject | None = None) -> J
 
 
 def _normalize_config(kind: CapabilityKind, value: JsonObject) -> JsonObject:
-    if kind in {"agent_cli", "cli", "mcp_stdio"}:
+    if kind in {"agent_cli", "model_cli", "evaluator_cli", "cli", "mcp_stdio"}:
         executable = _resolve_executable(value.get("executable"))
         args = _arguments(value.get("args", []))
         result: JsonObject = {"executable": executable, "args": args}
@@ -443,6 +466,32 @@ def _normalize_config(kind: CapabilityKind, value: JsonObject) -> JsonObject:
                 probe_args = _arguments(value.get("probe_args"))
                 if not probe_args:
                     raise ValueError("agent_cli probe_args must not be empty")
+                result["probe_args"] = probe_args
+            if isinstance(value.get("version"), str):
+                result["version"] = str(value["version"])[:160]
+        elif kind == "model_cli":
+            if value.get("protocol") != "symphlo.model-inference.v1":
+                raise ValueError(
+                    "model_cli requires protocol=symphlo.model-inference.v1"
+                )
+            result["protocol"] = "symphlo.model-inference.v1"
+            if "probe_args" in value:
+                probe_args = _arguments(value.get("probe_args"))
+                if not probe_args:
+                    raise ValueError("model_cli probe_args must not be empty")
+                result["probe_args"] = probe_args
+            if isinstance(value.get("version"), str):
+                result["version"] = str(value["version"])[:160]
+        elif kind == "evaluator_cli":
+            if value.get("protocol") != "symphlo.evaluation.v1":
+                raise ValueError(
+                    "evaluator_cli requires protocol=symphlo.evaluation.v1"
+                )
+            result["protocol"] = "symphlo.evaluation.v1"
+            if "probe_args" in value:
+                probe_args = _arguments(value.get("probe_args"))
+                if not probe_args:
+                    raise ValueError("evaluator_cli probe_args must not be empty")
                 result["probe_args"] = probe_args
             if isinstance(value.get("version"), str):
                 result["version"] = str(value["version"])[:160]
