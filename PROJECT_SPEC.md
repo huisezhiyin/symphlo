@@ -2,7 +2,7 @@
 
 ## 0. Status
 
-- Status: `open-source Local Alpha; A018 Evaluation Gate And Explicit Repair Loop`
+- Status: `open-source Local Alpha; A024 Run Stability App Projection`
 - Repository: `https://github.com/huisezhiyin/symphlo`
 - Publication: `authorized for public main`
 - Delivery focus: `cloneable, public-registry reproducible Local Alpha`
@@ -593,6 +593,26 @@ publication authority. It requires a fresh locked Web build and fails closed
 when any required page asset or the session fixture is missing. Package
 publication, GitHub Release creation, signing and stable-version claims remain
 explicit non-goals without a separate owner review.
+
+### A024: exact-version Run stability App projection
+
+The Runs page projects the existing A014 read model beside Report, Fork & Retry
+and Run Comparison. It requests stability only with the selected Run's persisted
+`task_id + flow_hash`; it never substitutes the current saved Flow version for a
+historical Run. Active Runs may show evidence from already-terminal comparable
+Runs and refresh the report when they become terminal.
+
+The card preserves A014 Node order and presents all five classifications as
+plain-language operational evidence. Zero, one and multiple comparable Runs,
+loading and unavailable states remain distinct. Executor identity/version and
+evidence level are secondary disclosure. Missing or invalid Run identity and a
+failed read remain unavailable and never fall back to another hash.
+
+A024 is an additive read-only App projection. It adds no API, persistence,
+Runtime transition, scheduler behavior, mutation, LLM, automatic repair or
+automatic rerun. It does not weaken effect authorization, Run comparison,
+explicit fork/retry or Evaluation repair behavior and exposes none of A014's
+restricted evidence fields.
 
 ### A025: deterministic Desktop cancellation acceptance
 
