@@ -15,6 +15,10 @@ const state = {
   plan: null,
   aiEditResult: null,
   repairResult: null,
+  stabilityReport: null,
+  stabilityError: "",
+  stabilityLoading: false,
+  stabilityRequestToken: 0,
   runComparison: null,
   comparisonTargetRunId: null,
   run: null,
@@ -36,6 +40,13 @@ const state = {
 };
 
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled"]);
+const stabilityLabels = {
+  stable_success: "持续成功",
+  repeated_failure: "重复失败",
+  unstable: "结果不稳定",
+  insufficient_evidence: "证据不足",
+  not_observed: "尚未执行",
+};
 const activeRunStorageKey = "promptNodeFlow.activeRunId";
 const runPollInitialDelayMs = 3000;
 const runPollIntervalMs = 10000;
@@ -579,7 +590,9 @@ function restoreActiveRunFromHistory() {
   state.run = remembered || (state.runs && state.runs.length ? state.runs[0] : null);
   state.task = null;
   if (state.run) {
+    clearRunStability();
     updateRuntimeCommand();
+    void loadRunStability(state.run);
     if (!terminalRunStatuses.has(state.run.status)) startRunPolling(state.run.run_id);
   }
 }
@@ -590,6 +603,7 @@ async function openRunFromHistory(runId) {
   state.run = run;
   state.task = null;
   state.repairResult = null;
+  clearRunStability();
   state.runComparison = null;
   state.comparisonTargetRunId = null;
   rememberRun(run);
@@ -597,6 +611,7 @@ async function openRunFromHistory(runId) {
   renderRunHistory();
   renderHub();
   updateRuntimeCommand();
+  void loadRunStability(run);
   if (!terminalRunStatuses.has(run.status)) startRunPolling(run.run_id);
   switchPage("runs");
   setNotice("run-message", `已加载 Run：${run.run_id}，状态 ${run.status}。页面会低频刷新状态。`, run.status === "failed" || run.status === "cancelled" ? "err" : "ok");
@@ -1041,6 +1056,7 @@ function clearFlowView() {
   state.plan = null;
   state.run = null;
   state.task = null;
+  clearRunStability();
   state.currentSavedFlowId = null;
   state.selectedStepId = null;
   $("flow-json").value = "";
@@ -1135,6 +1151,7 @@ async function openBlankFlow() {
   state.repairResult = null;
   state.run = null;
   state.task = null;
+  clearRunStability();
   state.plan = null;
   setFlow(newBlankFlow());
   renderPlan(null);
@@ -1499,6 +1516,127 @@ function renderAiEditResult() {
       <div class="mini-plan-list">${candidateSteps}</div>
     </div>
   `;
+}
+
+function clearRunStability() {
+  state.stabilityRequestToken += 1;
+  state.stabilityReport = null;
+  state.stabilityError = "";
+  state.stabilityLoading = false;
+}
+
+function runStabilityIdentity(run = state.run) {
+  const taskId = run && typeof run.task_id === "string" ? run.task_id : "";
+  const flowHash = run && typeof run.flow_hash === "string" ? run.flow_hash : "";
+  if (!taskId || !/^[0-9a-f]{64}$/.test(flowHash)) return null;
+  return {taskId, flowHash};
+}
+
+async function loadRunStability(run = state.run) {
+  const token = state.stabilityRequestToken + 1;
+  state.stabilityRequestToken = token;
+  state.stabilityReport = null;
+  state.stabilityError = "";
+  const identity = runStabilityIdentity(run);
+  const runId = run && run.run_id;
+  if (!identity || !runId) {
+    state.stabilityLoading = false;
+    state.stabilityError = run ? "当前 Run 缺少可验证的 Flow 版本。" : "";
+    renderRunStability();
+    return null;
+  }
+  state.stabilityLoading = true;
+  renderRunStability();
+  try {
+    const report = await api(`/api/v1/tasks/${encodeURIComponent(identity.taskId)}/stability?flow_hash=${encodeURIComponent(identity.flowHash)}`);
+    if (token !== state.stabilityRequestToken || !state.run || state.run.run_id !== runId) return null;
+    state.stabilityReport = report;
+    return report;
+  } catch (_) {
+    if (token !== state.stabilityRequestToken || !state.run || state.run.run_id !== runId) return null;
+    state.stabilityError = "无法读取该 Run 版本的稳定性证据。";
+    return null;
+  } finally {
+    if (token === state.stabilityRequestToken && state.run && state.run.run_id === runId) {
+      state.stabilityLoading = false;
+      renderRunStability();
+    }
+  }
+}
+
+function renderRunStability() {
+  const card = $("stability-card");
+  if (!card) return;
+  const title = $("stability-title");
+  const body = $("stability-body");
+  const status = $("stability-status");
+  const nodes = $("stability-nodes");
+  nodes.innerHTML = "";
+  if (!state.run) {
+    card.className = "stability-card";
+    title.textContent = "等待 Run 证据";
+    body.textContent = "选择 Run 后读取该版本的历史运行证据。";
+    status.textContent = "idle";
+    status.className = "pill";
+    return;
+  }
+  if (state.stabilityLoading) {
+    card.className = "stability-card";
+    title.textContent = "正在读取稳定性证据";
+    body.textContent = "仅比较该 Run 对应的同一 Flow 版本。";
+    status.textContent = "loading";
+    status.className = "pill warn";
+    return;
+  }
+  if (state.stabilityError) {
+    card.className = "stability-card unavailable";
+    title.textContent = "稳定性证据暂不可用";
+    body.textContent = state.stabilityError;
+    status.textContent = "unavailable";
+    status.className = "pill err";
+    return;
+  }
+  const report = state.stabilityReport;
+  if (!report) {
+    card.className = "stability-card";
+    title.textContent = "等待稳定性证据";
+    body.textContent = "该 Run 的版本证据尚未加载。";
+    status.textContent = "idle";
+    status.className = "pill";
+    return;
+  }
+  const comparableCount = Number(report.comparable_run_count || 0);
+  card.className = "stability-card available";
+  title.textContent = comparableCount === 0
+    ? "暂无可比较运行"
+    : `${comparableCount} 次同版本运行`;
+  body.textContent = comparableCount < 2
+    ? "证据仍在积累；至少两次可观察执行后才会判断为持续成功或重复失败。"
+    : "以下结论仅基于这个 Run 对应的同一 Flow 版本。";
+  status.textContent = comparableCount < 2 ? "collecting" : "comparable";
+  status.className = `pill ${comparableCount < 2 ? "warn" : "ok"}`;
+  nodes.innerHTML = (Array.isArray(report.nodes) ? report.nodes : []).map((node) => {
+    const classification = stabilityLabels[node.classification] ? node.classification : "not_observed";
+    const label = stabilityLabels[classification];
+    const executors = Array.isArray(node.executors)
+      ? node.executors.map((executor) => `${executor.executor_id}@${executor.version}`).join("、")
+      : "";
+    const evidenceLevels = Array.isArray(node.evidence_levels) ? node.evidence_levels.join("、") : "";
+    const advanced = [executors && `执行器 ${executors}`, evidenceLevels && `证据级别 ${evidenceLevels}`].filter(Boolean).join("；");
+    return `
+      <div class="stability-node ${escapeHtml(classification)}">
+        <div class="stability-node-head">
+          <strong>${escapeHtml(planStepFor(node.node_id).title || node.node_id)}</strong>
+          <span class="pill ${classification === "stable_success" ? "ok" : classification === "repeated_failure" ? "err" : "warn"}">${escapeHtml(label)}</span>
+        </div>
+        <div class="stability-node-meta">
+          <span>观察 ${escapeHtml(node.observed_run_count || 0)}</span>
+          <span>成功 ${escapeHtml(node.succeeded_count || 0)} · 失败 ${escapeHtml(node.failure_count || 0)}</span>
+        </div>
+        ${advanced ? `<details><summary>执行证据</summary><p>${escapeHtml(advanced)}</p></details>` : ""}
+      </div>
+    `;
+  }).join("");
 }
 
 function renderRepairResult() {
@@ -1898,11 +2036,13 @@ async function createRun() {
   state.run = result.run;
   state.task = result.next_task;
   state.repairResult = null;
+  clearRunStability();
   rememberRun(state.run);
   renderRun();
   renderCanvas(flow, null);
   renderHub();
   updateRuntimeCommand();
+  void loadRunStability(state.run);
   if (terminalRunStatuses.has(state.run.status)) {
     setNotice(
       "run-message",
@@ -1923,6 +2063,9 @@ async function refreshRun(runId = state.run && state.run.run_id, options = {}) {
   if (!runId) return null;
   const run = await api(`/api/flows/runs/${encodeURIComponent(runId)}`);
   if (!state.run || state.run.run_id !== runId) return run;
+  const previousStatus = state.run.status;
+  const previousTaskId = state.run.task_id;
+  const previousFlowHash = state.run.flow_hash;
   state.run = run;
   rememberRun(run);
   reconcileTaskWithRun();
@@ -1932,6 +2075,14 @@ async function refreshRun(runId = state.run && state.run.run_id, options = {}) {
     setNotice("run-message", `Run 状态已刷新：${run.status}`, run.status === "failed" || run.status === "cancelled" ? "err" : "ok");
   }
   renderHub();
+  if (
+    !options.silent
+    || previousTaskId !== run.task_id
+    || previousFlowHash !== run.flow_hash
+    || (!terminalRunStatuses.has(previousStatus) && terminalRunStatuses.has(run.status))
+  ) {
+    void loadRunStability(run);
+  }
   return run;
 }
 
@@ -2022,6 +2173,7 @@ function renderRun() {
   $("mock-result").disabled = !state.task;
   $("mock-failure").disabled = !state.task;
   renderReportSummary();
+  renderRunStability();
   renderRepairResult();
   renderRunComparison();
   const runSteps = $("run-steps");
@@ -2206,6 +2358,7 @@ async function cancelRunById(runId) {
     if (isActiveRun) startRunPolling(run.run_id);
   } else if (run.status === "cancelled") {
     stopRunPolling();
+    if (isActiveRun) void loadRunStability(run);
     setNotice("run-message", `Run 已停止：${run.run_id}`, "warn");
   } else {
     setNotice(
@@ -2226,6 +2379,7 @@ function closeRunPanel() {
   state.run = null;
   state.task = null;
   state.repairResult = null;
+  clearRunStability();
   state.runComparison = null;
   state.comparisonTargetRunId = null;
   clearActiveRunId();
@@ -2377,6 +2531,7 @@ async function submitMockResult() {
   state.task = null;
   renderRun();
   if (state.flow) renderCanvas(state.flow, null);
+  if (terminalRunStatuses.has(run.status)) void loadRunStability(run);
   setNotice("run-message", `已提交 ${task.step_id} mock result，run=${run.status}`, "ok");
   renderHub();
   if (!terminalRunStatuses.has(run.status)) startRunPolling(run.run_id);
@@ -2404,6 +2559,7 @@ async function submitMockFailure() {
   state.repairResult = null;
   renderRun();
   if (state.flow) renderCanvas(state.flow, null);
+  void loadRunStability(run);
   setNotice("run-message", `已提交 ${task.step_id} 失败结果，可生成修复候选。`, "err");
   renderHub();
 }

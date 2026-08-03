@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Symphlo Local</title>
-  <link rel="stylesheet" href="/flow-console/assets/styles.css?v=20260616-xyflow-layout" />
+  <link rel="stylesheet" href="/flow-console/assets/styles.css?v=20260803-a024-stability" />
   <link rel="stylesheet" href="/flow-console/assets/flow-canvas.css?v=20260616-xyflow" />
 </head>
 <body>
@@ -565,6 +565,17 @@
               </div>
               <a id="report-link" class="report-link" href="#" target="_blank" rel="noreferrer" hidden>打开报告</a>
             </div>
+            <div class="stability-card" id="stability-card">
+              <div class="stability-head">
+                <div>
+                  <span class="section-kicker">Stability</span>
+                  <strong id="stability-title">等待 Run 证据</strong>
+                </div>
+                <span class="pill" id="stability-status">idle</span>
+              </div>
+              <p id="stability-body">选择 Run 后读取该版本的历史运行证据。</p>
+              <div id="stability-nodes" class="stability-nodes"></div>
+            </div>
             <div class="repair-card" id="repair-card">
               <div class="repair-head">
                 <div>
@@ -736,7 +747,7 @@
     </div>
   </div>
 
-  <script type="module" src="/flow-console/assets/app.js?v=20260616-xyflow"></script>
+  <script type="module" src="/flow-console/assets/app.js?v=20260803-a024-stability"></script>
   <script type="module" src="/flow-console/assets/flow-canvas.js?v=20260616-xyflow"></script>
 </body>
 </html>
