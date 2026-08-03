@@ -594,6 +594,21 @@ when any required page asset or the session fixture is missing. Package
 publication, GitHub Release creation, signing and stable-version claims remain
 explicit non-goals without a separate owner review.
 
+### A025: deterministic Desktop cancellation acceptance
+
+The installable Desktop smoke proves the existing
+`running -> cancel_requested -> cancelled` lifecycle with a local process
+fixture whose declared effect is exactly `execute_process`. Test fixtures must
+not inherit broader default write effects they do not perform: doing so would
+truthfully invoke the App's native effect-authorization confirmation and block
+unattended acceptance before Run admission.
+
+The smoke emits bounded main-process and renderer journey stages without
+payloads or local user data, so a future failure identifies the first missing
+lifecycle boundary. This is acceptance-harness hardening only; it does not
+change Runtime cancellation, effect authorization, API contracts or product
+timeouts, and it must not auto-confirm write authorization to make CI pass.
+
 ## 5. Stable Architecture Boundary
 
 ```text

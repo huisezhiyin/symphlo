@@ -68,11 +68,14 @@ async function startDesktop(): Promise<void> {
   const launch = await startRuntime(projectRoot, stateRoot, uvExecutable);
   mainWindow = await createMainWindow(launch);
   if (desktopSmoke) {
+    smokeStage("renderer:start");
     await verifySmokeRenderer(mainWindow);
+    smokeStage("renderer:ready");
     await verifyCapabilityLibrary(
       mainWindow,
       process.env.SYMPHLO_DESKTOP_SMOKE_EXPECT_CAPABILITY,
     );
+    smokeStage("capability-library:ready");
     const screenshotPath = process.env.SYMPHLO_DESKTOP_SMOKE_SCREENSHOT;
     if (screenshotPath !== undefined) {
       if (!path.isAbsolute(screenshotPath) || screenshotPath.includes("\0")) {
@@ -83,8 +86,12 @@ async function startDesktop(): Promise<void> {
       process.stdout.write(`SYMPHLO_DESKTOP_SCREENSHOT ${screenshotPath}\n`);
     }
     const smokeExecutor = process.env.SYMPHLO_DESKTOP_SMOKE_EXECUTOR;
+    smokeStage("canonical-run:start");
     if (smokeExecutor !== undefined) await verifySmokeRun(mainWindow, smokeExecutor);
+    smokeStage("canonical-run:terminal");
+    smokeStage("cancellation:start");
     await verifySmokeCancellation(mainWindow);
+    smokeStage("cancellation:terminal");
     process.stdout.write("SYMPHLO_DESKTOP_SMOKE_OK\n");
     app.quit();
   }
@@ -427,8 +434,25 @@ async function verifySmokeRun(window: BrowserWindow, executor: string): Promise<
 }
 
 async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
+  const rendererStagePrefix = "SYMPHLO_DESKTOP_RENDERER_STAGE ";
+  const forwardRendererStage = (event: {message: string}): void => {
+    if (event.message.startsWith(rendererStagePrefix)) {
+      process.stdout.write(`${event.message}\n`);
+    }
+  };
+  window.webContents.on("console-message", forwardRendererStage);
+  try {
+    await verifySmokeCancellationJourney(window);
+  } finally {
+    window.webContents.off("console-message", forwardRendererStage);
+  }
+}
+
+async function verifySmokeCancellationJourney(window: BrowserWindow): Promise<void> {
+  smokeStage("cancellation:setup:start");
   const setup = await window.webContents.executeJavaScript(`
     (async () => {
+      const stage = (name) => console.info(${JSON.stringify("SYMPHLO_DESKTOP_RENDERER_STAGE ")} + name);
       const request = async (path, options = {}) => {
         const response = await fetch(path, {
           headers: {'Content-Type': 'application/json'},
@@ -438,6 +462,7 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
         if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
         return body;
       };
+      stage('setup:start');
       const capability = await request('/api/v1/capabilities', {
         method: 'POST',
         body: JSON.stringify({
@@ -446,6 +471,7 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
             name: 'Desktop cancel fixture',
             kind: 'agent_cli',
             timeout_seconds: 60,
+            effects: ['execute_process'],
             config: {
               executable: '/usr/bin/python3',
               args: [
@@ -456,6 +482,7 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
           },
         }),
       });
+      stage('setup:capability-saved');
       const draft = await request('/api/flows/draft', {
         method: 'POST',
         body: JSON.stringify({
@@ -463,21 +490,27 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
           report_focus: 'Desktop live cancellation proof',
         }),
       });
+      stage('setup:flow-drafted');
       draft.flow_dsl.name = 'Desktop live cancellation proof';
       draft.flow_dsl.steps[0].params.capability_id = capability.id;
       const saved = await request('/api/flows', {
         method: 'POST',
         body: JSON.stringify({template_id: 'compact', flow: draft.flow_dsl}),
       });
+      stage('setup:flow-saved');
       return {flowId: saved.flow_id};
     })()
   `, true) as unknown;
   if (!isRecord(setup) || typeof setup.flowId !== "string") {
     throw new Error(`Desktop cancellation setup failed: ${JSON.stringify(setup)}`);
   }
+  smokeStage("cancellation:setup:saved");
+  smokeStage("cancellation:reload:start");
   await window.loadURL(window.webContents.getURL());
+  smokeStage("cancellation:reload:ready");
   const evidence = await window.webContents.executeJavaScript(`
     (async () => {
+      const stage = (name) => console.info(${JSON.stringify("SYMPHLO_DESKTOP_RENDERER_STAGE ")} + name);
       const waitFor = async (read, timeoutMs, label) => {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
@@ -487,22 +520,27 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
         }
         throw new Error(label + ' timed out');
       };
+      stage('journey:start');
       const flowId = ${JSON.stringify(setup.flowId)};
       const open = await waitFor(
         () => document.querySelector('[data-open-flow="' + flowId + '"]'),
         10000,
         'saved cancellation Flow',
       );
+      stage('journey:flow-control-found');
       open.click();
+      stage('journey:flow-open-clicked');
       await waitFor(
         () => document.querySelector('#page-flows.active')
           && document.querySelector('#dev-flow-id')?.textContent === flowId,
         10000,
         'opened cancellation Flow',
       );
+      stage('journey:flow-opened');
       const previousRunId = document.querySelector('#run-id')?.textContent ?? '';
       document.querySelector('#executor-select').value = 'deterministic';
       document.querySelector('#run-flow-top').click();
+      stage('journey:run-clicked');
       await waitFor(
         () => {
           const runId = document.querySelector('#run-id')?.textContent ?? '';
@@ -511,6 +549,7 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
         5000,
         'new live Run id',
       );
+      stage('journey:run-admitted');
       const liveRunId = document.querySelector('#run-id')?.textContent ?? '';
       const liveStatus = document.querySelector('#run-status')?.textContent ?? '';
       if (!liveRunId || liveRunId === previousRunId || liveStatus !== 'running') {
@@ -521,15 +560,18 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
         5000,
         'running executor boundary',
       );
+      stage('journey:executor-running');
       const originalConfirm = window.confirm;
       window.confirm = () => true;
       try {
         document.querySelector('#cancel-run').click();
+        stage('journey:cancel-clicked');
         await waitFor(
           () => document.querySelector('#run-status')?.textContent === 'cancel_requested',
           3000,
           'cancel_requested status',
         );
+        stage('journey:cancel-requested');
       } finally {
         window.confirm = originalConfirm;
       }
@@ -539,6 +581,7 @@ async function verifySmokeCancellation(window: BrowserWindow): Promise<void> {
         const status = document.querySelector('#run-status')?.textContent ?? '';
         return status === 'cancelled' ? status : '';
       }, 10000, 'cancelled Run');
+      stage('journey:cancelled');
       return {
         liveRunId,
         liveStatus,
@@ -576,6 +619,10 @@ function stopRuntime(): void {
   } catch {
     child.kill("SIGTERM");
   }
+}
+
+function smokeStage(stage: string): void {
+  if (desktopSmoke) process.stdout.write(`SYMPHLO_DESKTOP_STAGE ${stage}\n`);
 }
 
 function showStartupFailure(error: unknown): void {
