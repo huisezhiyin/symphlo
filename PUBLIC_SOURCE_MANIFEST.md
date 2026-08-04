@@ -27,6 +27,7 @@ source projection, copies only allowlisted paths and validates the result again.
 | `pnpm-workspace.yaml` | public package workspace boundary |
 | `pyproject.toml` | public Python 3.12 project metadata |
 | `setup.py` | fail-closed wheel hook for reviewed Local App build output |
+| `PROJECT_KNOWLEDGE.md` | durable product portfolio and decision map |
 | `PROJECT_SPEC.md` | durable product and architecture contract |
 | `PUBLIC_SOURCE_MANIFEST.md` | source projection contract |
 | `README.md` | public project entry |
@@ -55,7 +56,6 @@ source projection, copies only allowlisted paths and validates the result again.
 The following implementation records may remain useful in the local workspace,
 but the exporter never copies them into public Git history:
 
-- `PROJECT_KNOWLEDGE.md`
 - `IMPLEMENTATION_BOOTSTRAP.md`
 - `OPEN_SOURCE_REVIEW.md`
 - `docs/features/`

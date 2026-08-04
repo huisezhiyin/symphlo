@@ -29,6 +29,7 @@ class PublicSourceTests(unittest.TestCase):
                 "LICENSE",
                 "NOTICE",
                 "pyproject.toml",
+                "PROJECT_KNOWLEDGE.md",
                 "THIRD_PARTY.md",
                 "SECURITY.md",
                 "CONTRIBUTING.md",
@@ -36,7 +37,6 @@ class PublicSourceTests(unittest.TestCase):
                 self.assertTrue((destination / relative).is_file(), relative)
             self.assertFalse((destination / "IMPLEMENTATION_BOOTSTRAP.md").exists())
             self.assertFalse((destination / "OPEN_SOURCE_REVIEW.md").exists())
-            self.assertFalse((destination / "PROJECT_KNOWLEDGE.md").exists())
             self.assertFalse((destination / "docs" / "features").exists())
 
             checked = subprocess.run(
@@ -127,10 +127,14 @@ class PublicSourceTests(unittest.TestCase):
 
     def test_public_entrypoints_do_not_reference_local_governance(self) -> None:
         local_only = re.compile(
-            r"PROJECT_KNOWLEDGE\.md|IMPLEMENTATION_BOOTSTRAP\.md|"
-            r"OPEN_SOURCE_REVIEW\.md|docs/features"
+            r"IMPLEMENTATION_BOOTSTRAP\.md|OPEN_SOURCE_REVIEW\.md|docs/features"
         )
-        for relative in ("AGENTS.md", "PROJECT_SPEC.md", "README.md"):
+        for relative in (
+            "AGENTS.md",
+            "PROJECT_KNOWLEDGE.md",
+            "PROJECT_SPEC.md",
+            "README.md",
+        ):
             content = (self.root / relative).read_text(encoding="utf-8")
             self.assertIsNone(local_only.search(content), relative)
 

@@ -20,6 +20,7 @@ REQUIRED_FILES = (
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "pyproject.toml",
+    "PROJECT_KNOWLEDGE.md",
     "PROJECT_SPEC.md",
     "PUBLIC_SOURCE_MANIFEST.md",
     "README.md",
@@ -66,12 +67,12 @@ SECRET_VALUE = re.compile(
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?!https?://|#)([^)]+)\)")
 PUBLIC_ENTRYPOINTS = {
     Path("AGENTS.md"),
+    Path("PROJECT_KNOWLEDGE.md"),
     Path("PROJECT_SPEC.md"),
     Path("README.md"),
 }
 LOCAL_ONLY_REFERENCE = re.compile(
-    r"PROJECT_KNOWLEDGE\.md|IMPLEMENTATION_BOOTSTRAP\.md|"
-    r"OPEN_SOURCE_REVIEW\.md|docs/features"
+    r"IMPLEMENTATION_BOOTSTRAP\.md|OPEN_SOURCE_REVIEW\.md|docs/features"
 )
 REGISTRY_REFERENCE = re.compile(
     r"(?i)(?:npm_config_registry|--registry|registry)"
