@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +12,7 @@ from symphlo.executors import (
     OpenCodeAgentExecutor,
     agent_preset_executor,
 )
+from symphlo.opencode_adapter import OpenCodeInvocation
 
 
 class AgentPresetTests(unittest.TestCase):
@@ -43,10 +43,10 @@ class AgentPresetTests(unittest.TestCase):
         self.assertIn("test-model", executor.arguments)
         self.assertEqual(executor.executable_version, "codex-cli 1.2.3")
 
-    @patch("symphlo.executors.run_cancellable_process")
+    @patch("symphlo.opencode_adapter.invoke_opencode_server")
     @patch("symphlo.executors.subprocess.run")
     @patch("symphlo.executors.shutil.which", return_value="/usr/local/bin/opencode")
-    def test_opencode_preset_extracts_only_text_events(
+    def test_opencode_preset_accepts_managed_server_text(
         self,
         _which: object,
         run: object,
@@ -55,20 +55,11 @@ class AgentPresetTests(unittest.TestCase):
         version = subprocess.CompletedProcess(
             ["opencode", "--version"], 0, "1.2.3\n", ""
         )
-        events = "\n".join(
-            [
-                json.dumps({"type": "step_start", "part": {"type": "step-start"}}),
-                json.dumps(
-                    {
-                        "type": "text",
-                        "part": {"type": "text", "text": "# Preset Article"},
-                    }
-                ),
-                json.dumps({"type": "step_finish", "part": {"type": "step-finish"}}),
-            ]
-        )
-        execution = subprocess.CompletedProcess(
-            ["opencode", "run"], 0, events, "diagnostic"
+        execution = OpenCodeInvocation(
+            "# Preset Article",
+            "session-fixture",
+            "message-fixture",
+            "1.2.3",
         )
         run.return_value = version
         execute.return_value = execution
@@ -88,7 +79,12 @@ class AgentPresetTests(unittest.TestCase):
             )
         self.assertEqual(result.output["article_markdown"], "# Preset Article")
         self.assertEqual(result.output["executor_label"], "opencode")
+        self.assertEqual(result.output["adapter_protocol"], "opencode.server.v1")
+        self.assertEqual(result.output["workspace_profile"], "ephemeral_text_only")
         self.assertEqual(result.evidence_level.value, "E2_REAL_EXECUTOR")
+        call = execute.call_args.kwargs
+        self.assertEqual(call["expected_version"], "1.2.3")
+        self.assertNotIn("# Preset Article", executor.arguments)
 
 
 if __name__ == "__main__":

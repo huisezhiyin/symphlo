@@ -543,9 +543,12 @@ make demo-codex CODEX_MODEL=your-supported-model LIVE_RUNS=2
 ```
 
 The Codex preset is ephemeral and requests a read-only sandbox. The OpenCode
-preset uses `--pure --format json` and accepts only text events; OpenCode still
-owns any provider configuration and session data it creates. Symphlo persists
-the exact CLI version and command fingerprint with every accepted Node result.
+preset starts one authenticated loopback server per Node, sends the Prompt only
+in an HTTP JSON body, disables discovered tools and runs in a disposable task
+workspace. OpenCode still owns provider configuration and local state, and its
+permission system is not a security sandbox. Symphlo persists the exact CLI
+version, adapter protocol, workspace profile and fingerprint with every accepted
+Node result.
 
 If a live command fails, run `make doctor` first. It proves executable discovery
 and the offline path, not provider authentication or model availability.
@@ -579,7 +582,7 @@ The Local Alpha supports five kinds:
 
 | Kind | Node | Contract |
 | --- | --- | --- |
-| `agent_cli` | `agent.task` | bounded prompt over stdin or final argv |
+| `agent_cli` | `agent.task` | bounded stdin/argv/session adapter, or pinned managed OpenCode loopback protocol |
 | `model_cli` | `model.task` | one exact model-inference request/result over stdin |
 | `cli` | `tool.task` | one JSON request on stdin; JSON or text on stdout |
 | `mcp_stdio` | `tool.task` | MCP initialize and one `tools/call` in a bounded session |
@@ -725,7 +728,7 @@ Implemented now:
 - explicit atomic `model.task` and `tool.task` boundaries with versioned accepted evidence;
 - Runtime-owned pre-admission authorization for exact `write_local | write_external` scopes, including fork suffixes;
 - compact, balanced and fine multi-Agent writing profiles;
-- deterministic offline executors, live-validated Codex/OpenCode presets and generic E2 stdio commands;
+- deterministic offline executors, live-validated Codex preset, managed OpenCode loopback preset and generic E2 stdio commands;
 - a user-local Capability Catalog with Agent CLI discovery and manual CLI, MCP stdio and HTTP bindings;
 - exact loopback integration-bundle preview/install with create/reuse/conflict planning, explicit confirmation and request-failure rollback;
 - an App-owned React Home / Flow / Runs product with a versioned loopback Local API;

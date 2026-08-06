@@ -319,6 +319,102 @@ class CapabilityTests(unittest.TestCase):
         looked_up = [call.args[0] for call in which.call_args_list]
         self.assertEqual(looked_up[:2], ["codex", "opencode"])
 
+    def test_discovered_opencode_uses_managed_protocol_and_exact_version(self) -> None:
+        fixture = self.project / "tests/fixtures/fake_opencode.py"
+        with patch(
+            "symphlo.capabilities.shutil.which",
+            side_effect=lambda name: str(fixture) if name == "opencode" else None,
+        ):
+            discovered = discover_local_agents()
+
+        self.assertEqual(len(discovered), 1)
+        capability = discovered[0]
+        self.assertEqual(capability["id"], "agent.opencode")
+        self.assertEqual(
+            capability["config"],
+            {
+                "executable": str(fixture.resolve()),
+                "adapter_protocol": "opencode.server.v1",
+                "workspace_profile": "ephemeral_text_only",
+                "probe_args": ["--version"],
+                "version": "fake-opencode 1.0.0",
+            },
+        )
+        self.assertTrue(probe_capability(normalize_capability(capability), self.root)["ok"])
+
+    def test_managed_opencode_capability_executes_through_shared_adapter(self) -> None:
+        fixture = self.project / "tests/fixtures/fake_opencode.py"
+        capability = normalize_capability(
+            {
+                "id": "agent.opencode-fixture",
+                "name": "Managed OpenCode fixture",
+                "kind": "agent_cli",
+                "config": {
+                    "executable": str(fixture),
+                    "adapter_protocol": "opencode.server.v1",
+                    "workspace_profile": "ephemeral_text_only",
+                    "version": "fake-opencode 1.0.0",
+                },
+            }
+        )
+        result = executor_for_capability(capability).execute(
+            ExecutionRequest(
+                "run",
+                "draft-article",
+                {"topic": "Managed Capability"},
+                self.root,
+            )
+        )
+
+        self.assertEqual(result.output["executor_label"], "agent.opencode-fixture")
+        self.assertEqual(result.output["executable_version"], "fake-opencode 1.0.0")
+        self.assertEqual(result.evidence_level.value, "E2_REAL_EXECUTOR")
+
+    def test_managed_opencode_contract_rejects_mixed_or_unversioned_modes(self) -> None:
+        fixture = self.project / "tests/fixtures/fake_opencode.py"
+        base = {
+            "id": "agent.opencode-invalid",
+            "name": "Invalid managed OpenCode",
+            "kind": "agent_cli",
+            "config": {
+                "executable": str(fixture),
+                "adapter_protocol": "opencode.server.v1",
+                "workspace_profile": "ephemeral_text_only",
+                "version": "fake-opencode 1.0.0",
+            },
+        }
+        mixed = json.loads(json.dumps(base))
+        mixed["config"]["input_mode"] = "argument"
+        with self.assertRaisesRegex(ValueError, "does not accept generic"):
+            normalize_capability(mixed)
+        unversioned = json.loads(json.dumps(base))
+        del unversioned["config"]["version"]
+        with self.assertRaisesRegex(ValueError, "requires an executable version"):
+            normalize_capability(unversioned)
+        wrong_profile = json.loads(json.dumps(base))
+        wrong_profile["config"]["workspace_profile"] = "host"
+        with self.assertRaisesRegex(ValueError, "ephemeral_text_only"):
+            normalize_capability(wrong_profile)
+
+    def test_managed_opencode_version_changes_capability_fingerprint(self) -> None:
+        fixture = self.project / "tests/fixtures/fake_opencode.py"
+        draft = {
+            "id": "agent.opencode-fingerprint",
+            "name": "Managed OpenCode fingerprint",
+            "kind": "agent_cli",
+            "config": {
+                "executable": str(fixture),
+                "adapter_protocol": "opencode.server.v1",
+                "workspace_profile": "ephemeral_text_only",
+                "version": "fake-opencode 1.0.0",
+            },
+        }
+        first = normalize_capability(draft)
+        changed = json.loads(json.dumps(draft))
+        changed["config"]["version"] = "fake-opencode 2.0.0"
+        second = normalize_capability(changed)
+        self.assertNotEqual(first.fingerprint, second.fingerprint)
+
     def test_descriptor_argument_mode_executes_as_a_real_agent_capability(self) -> None:
         capability = normalize_capability(
             {

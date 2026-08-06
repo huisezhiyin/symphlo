@@ -251,10 +251,14 @@ argument vectors without a shell, binds a command fingerprint into the Flow and
 declares broad process/local/external effects. Credentials and environment
 values are never persisted by Symphlo.
 
-Codex and OpenCode are optional live-validated reference presets over this boundary. Codex
-uses ephemeral read-only execution; OpenCode uses pure JSON events and may own
-its own external session state. Neither is bundled, installed, authenticated or
-required by the offline Quick Start.
+Codex and OpenCode are optional live-validated reference presets over this
+boundary. Codex uses ephemeral read-only execution. OpenCode uses the pinned
+`opencode.server.v1` adapter protocol: one authenticated loopback server and
+disposable text-only task workspace per Node, Prompt transport in an HTTP JSON
+body, deny-all OpenCode tool policy and session abort before process-tree
+termination. This containment is not described as a security sandbox; OpenCode
+may still own provider configuration and external local state. Neither Agent is
+bundled, installed, authenticated or required by the offline Quick Start.
 
 Additional Agent CLIs may be described by a versioned user-local descriptor
 outside the Git source tree. A descriptor can resolve explicit command names or
@@ -275,6 +279,14 @@ Every execution still resolves to the same Flow, Node, effect, event, Result
 and Artifact contracts. An `agent_cli` may declare bounded fixed `probe_args`
 for a non-mutating readiness check; those arguments participate in its
 immutable fingerprint and never receive Run input.
+
+The discovered OpenCode Capability remains an `agent_cli` but binds the explicit
+`adapter_protocol=opencode.server.v1` and
+`workspace_profile=ephemeral_text_only`. These provider-specific transport
+details remain behind the executor boundary and do not enter Flow DSL, Graph IR,
+Run Context or product-facing Node semantics. Exact executable-version drift,
+loopback/auth/policy failure, invalid HTTP response, output overflow or cleanup
+failure rejects the Node without fallback to the legacy Prompt-in-argv path.
 
 Saved Flows may declare typed input fields. Run admission resolves only those
 declared fields from explicit values or defaults, validates their JSON types

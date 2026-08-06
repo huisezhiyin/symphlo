@@ -489,65 +489,79 @@ class CodexAgentExecutor(CommandAgentExecutor):
 
 
 class OpenCodeAgentExecutor(CommandAgentExecutor):
-    """Verified OpenCode CLI preset that accepts text from JSON event output."""
+    """Verified OpenCode preset using one managed loopback server per Node."""
 
     effects = CommandAgentExecutor.effects
 
-    def __init__(self, timeout_seconds: int = 300) -> None:
+    def __init__(
+        self,
+        timeout_seconds: int = 300,
+        *,
+        executable: str = "opencode",
+        executable_version: str | None = None,
+        identity_label: str = "opencode",
+        fingerprint: str | None = None,
+        executor_ref: ExecutorRef | None = None,
+    ) -> None:
         if timeout_seconds < 1 or timeout_seconds > 3600:
             raise ValueError("agent timeout must be between 1 and 3600 seconds")
-        version = _executable_version("opencode", "--version")
+        version = executable_version or _executable_version(executable, "--version")
         identity = {
-            "arguments": ["opencode", "run", "--pure", "--format", "json", "<prompt>"],
+            "adapter_protocol": "opencode.server.v1",
+            "arguments": [
+                Path(executable).name,
+                "serve",
+                "--pure",
+                "--hostname",
+                "127.0.0.1",
+                "--port",
+                "<ephemeral>",
+            ],
             "executable_version": version,
-            "identity_label": "opencode",
+            "identity_label": identity_label,
+            "workspace_profile": "ephemeral_text_only",
         }
-        self.arguments = ("opencode", "run", "--pure", "--format", "json")
+        self.arguments = tuple(identity["arguments"])
+        self.executable = executable
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = 1_000_000
-        self.identity_label = "opencode"
+        self.identity_label = identity_label
         self.executable_version = version
-        self.fingerprint = hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest()
-        self.ref = ExecutorRef(f"command.stdio-agent.{self.fingerprint[:16]}", "0.1.0")
+        self.fingerprint = fingerprint or hashlib.sha256(
+            canonical_json(identity).encode("utf-8")
+        ).hexdigest()
+        self.ref = executor_ref or ExecutorRef(
+            f"opencode.server-agent.{self.fingerprint[:16]}", "1.0.0"
+        )
 
     def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        prompt = self._prompt(request)
-        try:
-            completed = run_cancellable_process(
-                [*self.arguments, prompt],
-                request.workspace,
-                None,
-                self.timeout_seconds,
-                request.cancellation,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError(
-                f"agent command timed out after {self.timeout_seconds}s: opencode"
-            ) from error
-        if completed.returncode != 0:
-            stderr_bytes = len(completed.stderr.encode("utf-8"))
-            raise RuntimeError(
-                f"agent command failed: executable=opencode "
-                f"exit={completed.returncode} stderr_bytes={stderr_bytes}"
-            )
-        if len(completed.stdout.encode("utf-8")) > self.max_output_bytes:
-            raise RuntimeError(
-                f"agent command output exceeds {self.max_output_bytes} bytes: opencode"
-            )
-        text_parts: list[str] = []
-        for line in completed.stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise RuntimeError("opencode returned invalid JSON event output") from error
-            if event.get("type") == "text":
-                text = event.get("part", {}).get("text")
-                if isinstance(text, str) and text:
-                    text_parts.append(text)
-        output_text = "\n".join(text_parts).strip()
-        if not output_text:
-            raise RuntimeError("opencode returned no text events")
-        return self._accepted_result(request, output_text, "opencode")
+        if request.session_group is not None:
+            raise RuntimeError("OpenCode managed adapter v1 does not reuse sessions")
+        from .opencode_adapter import invoke_opencode_server
+
+        invocation = invoke_opencode_server(
+            executable=self.executable,
+            expected_version=self.executable_version,
+            prompt=self._prompt(request),
+            timeout_seconds=self.timeout_seconds,
+            cancellation=request.cancellation,
+        )
+        accepted = self._accepted_result(
+            request, invocation.output_text, self.identity_label
+        )
+        output = dict(accepted.output)
+        output.update(
+            {
+                "adapter_protocol": "opencode.server.v1",
+                "workspace_profile": "ephemeral_text_only",
+            }
+        )
+        return ExecutionResult(
+            output,
+            accepted.evidence_level,
+            accepted.artifact,
+            accepted.session,
+        )
 
 
 def agent_preset_executor(

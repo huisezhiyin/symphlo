@@ -73,6 +73,19 @@ The integration is intentionally asymmetric:
 Clerklet is an important reference participant for Symphlo, not the exclusive
 Agent, bundled prerequisite or owner of Symphlo product semantics.
 
+## Reference Executor Boundary
+
+OpenCode is the first provider-specific reference executor behind the generic
+Capability/Adapter boundary. Its managed v1 transport starts one authenticated
+loopback server in a disposable task workspace per Node, keeps Prompt content
+out of process arguments and maps cancellation to session abort plus process
+cleanup. These details are executor concerns and do not enter Flow/Run truth.
+
+OpenCode permissions are a fail-closed tool policy, not a security sandbox.
+Symphlo therefore preserves truthful external effects and treats container/VM
+isolation as a separate future deployment profile rather than claiming that a
+temporary directory provides host security isolation.
+
 ## Durable Decision Rules
 
 - Treat multi-Agent and multi-application collaboration as a core product

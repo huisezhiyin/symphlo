@@ -300,11 +300,11 @@ def discover_local_agents(descriptor_paths: Sequence[Path] = ()) -> list[JsonObj
             capability_id = "agent.codex"
             output_format = "text"
         else:
-            args = ["run", "--pure", "--format", "json"]
-            input_mode = "argument"
             name = "OpenCode CLI"
             capability_id = "agent.opencode"
-            output_format = "opencode_jsonl"
+            args = []
+            input_mode = None
+            output_format = None
         capability = normalize_capability(
             {
                 "id": capability_id,
@@ -315,9 +315,19 @@ def discover_local_agents(descriptor_paths: Sequence[Path] = ()) -> list[JsonObj
                 "timeout_seconds": 300,
                 "config": {
                     "executable": str(Path(executable).resolve()),
-                    "args": args,
-                    "input_mode": input_mode,
-                    "output_format": output_format,
+                    **(
+                        {
+                            "adapter_protocol": "opencode.server.v1",
+                            "workspace_profile": "ephemeral_text_only",
+                            "probe_args": ["--version"],
+                        }
+                        if executable_name == "opencode"
+                        else {
+                            "args": args,
+                            "input_mode": input_mode,
+                            "output_format": output_format,
+                        }
+                    ),
                     "version": version,
                 },
             }
@@ -435,6 +445,38 @@ def probe_record(ok: bool, summary: str, details: JsonObject | None = None) -> J
 def _normalize_config(kind: CapabilityKind, value: JsonObject) -> JsonObject:
     if kind in {"agent_cli", "model_cli", "evaluator_cli", "cli", "mcp_stdio"}:
         executable = _resolve_executable(value.get("executable"))
+        if kind == "agent_cli" and "adapter_protocol" in value:
+            if value.get("adapter_protocol") != "opencode.server.v1":
+                raise ValueError("unsupported agent_cli adapter_protocol")
+            if value.get("workspace_profile") != "ephemeral_text_only":
+                raise ValueError(
+                    "opencode.server.v1 requires workspace_profile=ephemeral_text_only"
+                )
+            version = value.get("version")
+            if not isinstance(version, str) or not version.strip():
+                raise ValueError("opencode.server.v1 requires an executable version")
+            result = {
+                "executable": executable,
+                "adapter_protocol": "opencode.server.v1",
+                "workspace_profile": "ephemeral_text_only",
+                "version": version.strip()[:160],
+            }
+            if "probe_args" in value:
+                probe_args = _arguments(value.get("probe_args"))
+                if not probe_args:
+                    raise ValueError("agent_cli probe_args must not be empty")
+                result["probe_args"] = probe_args
+            forbidden = {
+                "args",
+                "input_mode",
+                "output_format",
+                "session_protocol",
+            }.intersection(value)
+            if forbidden:
+                raise ValueError(
+                    "opencode.server.v1 does not accept generic Agent CLI modes"
+                )
+            return result
         args = _arguments(value.get("args", []))
         result: JsonObject = {"executable": executable, "args": args}
         if kind == "agent_cli":
