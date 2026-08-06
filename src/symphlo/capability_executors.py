@@ -31,6 +31,7 @@ from .executors import (
     ExecutionCancelled,
     ExecutionRequest,
     Executor,
+    OpenCodeAgentExecutor,
     process_group_options,
     run_cancellable_process,
     signal_process_tree,
@@ -65,6 +66,15 @@ def _tool_call_evidence(capability: CapabilityDefinition) -> JsonObject:
 
 def executor_for_capability(capability: CapabilityDefinition) -> Executor:
     if capability.kind == "agent_cli":
+        if capability.config.get("adapter_protocol") == "opencode.server.v1":
+            return OpenCodeAgentExecutor(
+                capability.timeout_seconds,
+                executable=str(capability.config["executable"]),
+                executable_version=str(capability.config["version"]),
+                identity_label=capability.capability_id,
+                fingerprint=capability.fingerprint,
+                executor_ref=_executor_ref(capability),
+            )
         return CapabilityAgentExecutor(capability)
     if capability.kind == "model_cli":
         return ModelCliCapabilityExecutor(capability)

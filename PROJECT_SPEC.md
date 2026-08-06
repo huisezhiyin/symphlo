@@ -2,7 +2,7 @@
 
 ## 0. Status
 
-- Status: `open-source Local Alpha; A024 Run Stability App Projection`
+- Status: `open-source Local Alpha; durable multi-executor collaboration direction`
 - Repository: `https://github.com/huisezhiyin/symphlo`
 - Publication: `authorized for public main`
 - Delivery focus: `cloneable, public-registry reproducible Local Alpha`
@@ -10,16 +10,24 @@
 
 ## 1. Product Thesis
 
-Symphlo is a slidable, observable outer loop for durable Agent work. It
-selectively externalizes high-level phases that would otherwise remain inside
-one opaque Agent session, turning them into versioned task boundaries with
-durable state, observable handoffs and inspectable results.
+Symphlo is a durable Flow and collaboration control plane for work performed by
+multiple independent executors. Agents, applications, MCP tools, HTTP services,
+CLIs, scripts, model calls, compute and Humans can collaborate through
+versioned task boundaries with durable state, explicit authority, observable
+handoffs and inspectable results.
 
-This layer is most valuable for fixed orchestration, repeated execution and
-long-running chains. In those cases, a reusable Flow can outperform a loose
-Skill or one autonomous Agent session on repeatability, recovery, evidence and
-maintenance while keeping the user entrypoint simple. Open-ended, disposable
-work may still be better served by one autonomous Agent without an outer Flow.
+Fixed orchestration, repeated execution and long-running chains remain strong
+use cases, but they do not define the product boundary. Symphlo is also valuable
+when several Agents or applications must exchange accepted results, divide
+responsibility, coordinate effects, survive session boundaries or remain
+independently replaceable. Open-ended, disposable work with no durable
+collaboration requirement may still be better served by one autonomous Agent.
+
+Multi-Agent and multi-application collaboration is therefore a core product
+idea, not an optional feature added to a fixed workflow engine. Collaboration
+is established by durable contracts and handoffs, not by the number of Agent
+logos, an implicit shared conversation or several applications running side by
+side without consuming each other's accepted output.
 
 Its primary design move is to externalize useful high-level phases of an
 otherwise opaque Agent loop into an observable and orchestratable outer loop.
@@ -55,12 +63,13 @@ branching model/tool graphs, dynamic tool selection and automatic granularity
 conversion remain unimplemented.
 
 Externalization also makes each selected phase independently assignable to an
-appropriate Agent, MCP tool, HTTP service, CLI, local script, compute step or
-Human. Multi-Agent and multi-capability collaboration emerge from explicit
-Node contracts and inspectable handoffs, not from putting several Agent names
-on one opaque session. Users gain understandable control over steps, problems
-and deliverables; developers gain versioned bindings, replaceable executors and
-comparable evidence instead of hope-based orchestration.
+appropriate Agent, application, MCP tool, HTTP service, CLI, local script,
+compute step or Human. Multi-Agent and multi-application collaboration emerges
+from explicit Node contracts and inspectable handoffs, not from putting several
+names on one opaque session. Users gain understandable control over steps,
+participants, problems and deliverables; developers gain versioned bindings,
+replaceable executors and comparable evidence instead of hope-based
+orchestration.
 
 Designers normally split semantic work such as `observe -> analyze -> challenge
 -> deliver`, not an Agent's private model calls, tool calls or turns. Every
@@ -81,9 +90,17 @@ boundary:
 - accepted result and downstream handoff;
 - produced Artifacts and comparable Run evidence.
 
-Flow controls `what / who / when / handoff`. An Agent controls `how` inside its
-Node. Flow definitions, Run state, Context, Artifacts and history are product
-truth; private Agent sessions and conversations are not.
+Flow controls `what / who / when / dependencies / authority / handoff`. An
+Agent or application controls `how` inside its Node. Flow definitions, Run
+state, Context, Artifacts and history are product truth; private Agent sessions,
+application sessions and conversations are not.
+
+Symphlo and Clerklet are separate active products. Clerklet is the standalone
+Agent; Symphlo is the Flow and collaboration control plane. Either product may
+run without the other. When composed, Clerklet connects through the same
+reviewed Capability, Adapter, Runner and API contracts as any other executor
+and never becomes Symphlo's exclusive Agent or state owner. The historical
+`huisezhiyin/agent-flow` project is retired and receives no new product work.
 
 A Skill packages reusable execution knowledge. It may help an Agent perform a
 Node, but it does not own durable task state, accepted cross-Node handoffs or
@@ -92,30 +109,32 @@ orchestration only where explicit task operations create value.
 
 ## 2. Product Properties
 
-1. **Externalized**: selected high-level phases become explicit task boundaries
+1. **Collaborative**: multiple Agents, applications, tools and Humans exchange
+   accepted results through explicit ownership and handoff boundaries.
+2. **Externalized**: selected high-level phases become explicit task boundaries
    without exposing or controlling the Agent's private reasoning loop.
-2. **Observable**: useful Node boundaries persist accepted input, executor,
+3. **Observable**: useful Node boundaries persist accepted input, executor,
    effects, events, results, handoffs and Artifacts.
-3. **Sliding task granularity**: designers may keep one broad Agent Node or
+4. **Sliding task granularity**: designers may keep one broad Agent Node or
    externalize more semantic phases when observation, recovery, replacement or
    maintenance value justifies the extra boundary. Maximum decomposition is not
    a goal and does not require a different Runtime.
-4. **Sliding loop ownership**: broad Nodes preserve more Agent autonomy; finer
+5. **Sliding loop ownership**: broad Nodes preserve more Agent autonomy; finer
    explicit boundaries give the Flow more orchestration, evidence and recovery
    responsibility without modifying private Agent cognition.
-5. **Open execution supply**: Agent, MCP, HTTP, CLI, local script, compute and
-   Human executors collaborate behind explicit portable Node contracts.
-6. **Controllable**: users see understandable steps, problems and deliverables;
+6. **Open execution supply**: Agent, application, MCP, HTTP, CLI, local script,
+   compute and Human executors collaborate behind portable Node contracts.
+7. **Controllable**: users see understandable participants, steps, problems and deliverables;
    developers can inspect, replace and maintain exact executor bindings.
-7. **Debuggable from the boundary**: accepted Context, results, events,
+8. **Debuggable from the boundary**: accepted Context, results, events,
    executors and Artifacts make Agent work replayable and comparable without
    exposing chain-of-thought.
-8. **Durable**: a task survives process, Agent and conversation boundaries.
-9. **Repeatable**: one immutable task version can run again with new inputs.
-10. **Maintainable**: comparable Runs identify unstable steps and affected work.
-11. **Agent-agnostic**: capabilities and versioned adapters sit behind portable contracts.
-12. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
-13. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
+9. **Durable**: collaboration survives process, Agent, application and conversation boundaries.
+10. **Repeatable**: one immutable task version can run again with new inputs.
+11. **Maintainable**: comparable Runs identify unstable steps and affected work.
+12. **Executor-agnostic**: capabilities and versioned adapters sit behind portable contracts.
+13. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
+14. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
 
 ## 3. Public Experience
 
@@ -232,10 +251,14 @@ argument vectors without a shell, binds a command fingerprint into the Flow and
 declares broad process/local/external effects. Credentials and environment
 values are never persisted by Symphlo.
 
-Codex and OpenCode are optional live-validated reference presets over this boundary. Codex
-uses ephemeral read-only execution; OpenCode uses pure JSON events and may own
-its own external session state. Neither is bundled, installed, authenticated or
-required by the offline Quick Start.
+Codex and OpenCode are optional live-validated reference presets over this
+boundary. Codex uses ephemeral read-only execution. OpenCode uses the pinned
+`opencode.server.v1` adapter protocol: one authenticated loopback server and
+disposable text-only task workspace per Node, Prompt transport in an HTTP JSON
+body, deny-all OpenCode tool policy and session abort before process-tree
+termination. This containment is not described as a security sandbox; OpenCode
+may still own provider configuration and external local state. Neither Agent is
+bundled, installed, authenticated or required by the offline Quick Start.
 
 Additional Agent CLIs may be described by a versioned user-local descriptor
 outside the Git source tree. A descriptor can resolve explicit command names or
@@ -256,6 +279,14 @@ Every execution still resolves to the same Flow, Node, effect, event, Result
 and Artifact contracts. An `agent_cli` may declare bounded fixed `probe_args`
 for a non-mutating readiness check; those arguments participate in its
 immutable fingerprint and never receive Run input.
+
+The discovered OpenCode Capability remains an `agent_cli` but binds the explicit
+`adapter_protocol=opencode.server.v1` and
+`workspace_profile=ephemeral_text_only`. These provider-specific transport
+details remain behind the executor boundary and do not enter Flow DSL, Graph IR,
+Run Context or product-facing Node semantics. Exact executable-version drift,
+loopback/auth/policy failure, invalid HTTP response, output overflow or cleanup
+failure rejects the Node without fallback to the legacy Prompt-in-argv path.
 
 Saved Flows may declare typed input fields. Run admission resolves only those
 declared fields from explicit values or defaults, validates their JSON types
@@ -637,7 +668,7 @@ User experience
   -> Flow definition and Runtime
   -> Runner protocol
   -> capability / adapter contract
-  -> Agent, MCP, API, CLI, script or local software
+  -> Agent, application, MCP, API, CLI, script, local software or Human
 ```
 
 - Domain contracts do not import Web, database or concrete adapter code.

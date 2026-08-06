@@ -6,12 +6,21 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-local%20alpha-orange.svg)](#current-local-alpha-boundary)
 
-## A slidable, observable outer loop for durable Agent work
+## Durable Flow for multi-Agent and multi-application collaboration
+
+Symphlo coordinates durable work across Agents, applications, tools and Humans.
+It provides explicit task ownership, accepted Context, effects, handoffs,
+evaluation, recovery and Artifacts without taking over how each participant
+does its work.
+
+Fixed, repeated and long-running processes are important uses, but not the
+whole product. Symphlo is equally about multi-Agent and multi-application
+collaboration when work must cross executor or session boundaries and remain
+observable, replaceable and maintainable.
 
 Agents are good at looping: inspect, reason, use tools, revise and continue.
-That autonomy is exactly what makes them useful—and what makes fixed, repeated
-or long-chain work difficult to operate when everything stays inside one Agent
-session.
+Symphlo can externalize selected high-level phases of that loop when the added
+boundary has collaboration or operational value.
 
 Symphlo lets you **externalize selected high-level phases of an Agent's inner
 loop** into a durable outer loop. Its task granularity can slide from one broad
@@ -71,10 +80,10 @@ message. General branching model/tool loops, dynamic tool selection and
 automatic granularity conversion are not implemented in this Local Alpha.
 
 Externalization also opens execution supply. Each boundary can deliberately
-bind the right Agent, HTTP service, MCP tool, CLI, local script or Human.
-Different Agents and capabilities can therefore collaborate through explicit,
-inspectable handoffs instead of leaving one opaque Agent session to improvise
-the entire chain.
+bind the right Agent, application, HTTP service, MCP tool, CLI, local script or
+Human. Different participants can therefore collaborate through explicit,
+inspectable handoffs instead of relying on one opaque session or several
+disconnected applications.
 
 This gives users understandable steps, live state, problems and deliverables.
 It gives developers versioned contracts, replaceable executors and comparable
@@ -82,7 +91,14 @@ Run evidence. Symphlo rejects hope-based orchestration. It provides
 maintainable control instead of merely waiting for an Agent or LLM to work
 everything out.
 
-**Flow controls `what / who / when / handoff`. The Agent controls `how`.**
+**Flow controls `what / who / when / dependencies / authority / handoff`.
+Each Agent or application controls `how`.**
+
+Symphlo is developed alongside
+[Clerklet](https://github.com/huisezhiyin/clerklet), the separate standalone
+Agent. Clerklet is an optional reference participant, not a bundled prerequisite
+or the owner of Symphlo state. The historical `huisezhiyin/agent-flow` project
+is retired.
 
 ## Run it in five minutes
 
@@ -226,6 +242,8 @@ task that must run again and again.
 Symphlo becomes valuable when work has one or more of these properties:
 
 - **fixed orchestration** — known phases, approvals, effects or deliverables;
+- **multi-participant collaboration** — Agents, applications, tools or Humans
+  must consume each other's accepted output;
 - **high repetition** — the same work must run consistently with new inputs;
 - **long chains** — work crosses many steps, executors, failures or conversations;
 - **important handoffs** — an accepted result must be inspected before the next phase;
@@ -458,11 +476,13 @@ loop. The Runs page says that evaluation was rejected, shows a bounded summary,
 and targets the producer rather than merely rerunning the evaluator. The
 evaluator's judgment is orchestration evidence, not proven truth or root cause.
 
-## Multi-Agent without theatre
+## Multi-executor collaboration without theatre
 
 An Agent is a first-class Node executor. Different Nodes may resolve to
 different Agents, or to the same Agent with different task contracts. The
-product proof is not the number of Agent logos. It is the durable boundary:
+same contracts also admit applications, MCP, HTTP, CLI, scripts, compute and
+Humans. The product proof is not the number of Agent logos or connected apps.
+It is the durable boundary:
 
 - accepted input and Context;
 - declared effects and authorization;
@@ -523,9 +543,12 @@ make demo-codex CODEX_MODEL=your-supported-model LIVE_RUNS=2
 ```
 
 The Codex preset is ephemeral and requests a read-only sandbox. The OpenCode
-preset uses `--pure --format json` and accepts only text events; OpenCode still
-owns any provider configuration and session data it creates. Symphlo persists
-the exact CLI version and command fingerprint with every accepted Node result.
+preset starts one authenticated loopback server per Node, sends the Prompt only
+in an HTTP JSON body, disables discovered tools and runs in a disposable task
+workspace. OpenCode still owns provider configuration and local state, and its
+permission system is not a security sandbox. Symphlo persists the exact CLI
+version, adapter protocol, workspace profile and fingerprint with every accepted
+Node result.
 
 If a live command fails, run `make doctor` first. It proves executable discovery
 and the offline path, not provider authentication or model availability.
@@ -559,7 +582,7 @@ The Local Alpha supports five kinds:
 
 | Kind | Node | Contract |
 | --- | --- | --- |
-| `agent_cli` | `agent.task` | bounded prompt over stdin or final argv |
+| `agent_cli` | `agent.task` | bounded stdin/argv/session adapter, or pinned managed OpenCode loopback protocol |
 | `model_cli` | `model.task` | one exact model-inference request/result over stdin |
 | `cli` | `tool.task` | one JSON request on stdin; JSON or text on stdout |
 | `mcp_stdio` | `tool.task` | MCP initialize and one `tools/call` in a bounded session |
@@ -705,7 +728,7 @@ Implemented now:
 - explicit atomic `model.task` and `tool.task` boundaries with versioned accepted evidence;
 - Runtime-owned pre-admission authorization for exact `write_local | write_external` scopes, including fork suffixes;
 - compact, balanced and fine multi-Agent writing profiles;
-- deterministic offline executors, live-validated Codex/OpenCode presets and generic E2 stdio commands;
+- deterministic offline executors, live-validated Codex preset, managed OpenCode loopback preset and generic E2 stdio commands;
 - a user-local Capability Catalog with Agent CLI discovery and manual CLI, MCP stdio and HTTP bindings;
 - exact loopback integration-bundle preview/install with create/reuse/conflict planning, explicit confirmation and request-failure rollback;
 - an App-owned React Home / Flow / Runs product with a versioned loopback Local API;

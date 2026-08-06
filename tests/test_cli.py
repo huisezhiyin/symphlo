@@ -81,7 +81,7 @@ class CliTests(unittest.TestCase):
         for command in ("make help", "make doctor", "make demo"):
             self.assertIn(command, readme)
         self.assertIn(
-            "A slidable, observable outer loop for durable Agent work",
+            "Durable Flow for multi-Agent and multi-application collaboration",
             readme,
         )
         self.assertIn(

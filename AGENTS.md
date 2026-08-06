@@ -6,10 +6,11 @@
 
 进入 workspace 后按顺序阅读：
 
-1. `PROJECT_SPEC.md`
-2. `README.md`
-3. `PUBLIC_SOURCE_MANIFEST.md`
-4. 当前 task 对应的代码和测试
+1. `PROJECT_KNOWLEDGE.md`
+2. `PROJECT_SPEC.md`
+3. `README.md`
+4. `PUBLIC_SOURCE_MANIFEST.md`
+5. 当前 task 对应的代码和测试
 
 ## Owner Model
 
@@ -20,14 +21,28 @@
 
 ## Product Boundaries
 
-- Symphlo is a durable task runtime above Agent loops, not a general low-code platform and not an Agent UI shell.
+- Symphlo is the durable Flow and collaboration control plane in the active
+  `Symphlo + Clerklet` product portfolio. The historical
+  `huisezhiyin/agent-flow` project
+  is retired and must not receive new product work.
+- Symphlo coordinates multiple independent executors, not only fixed Agent
+  chains. Agents, applications, MCP, HTTP, CLI, scripts, compute and Humans may
+  collaborate through the same versioned Node and handoff contracts.
+- Fixed and repeated orchestration is one strong Flow shape, not the complete
+  product definition. Multi-Agent and multi-application collaboration is a
+  core product scenario.
+- Symphlo is not a general low-code platform and not an Agent UI shell.
 - An Agent is a first-class Node executor. It may keep its internal loop, while Symphlo owns observable inputs, effects, executor identity, events, accepted results, Context and Artifacts.
 - Symphlo guides Agent work through external task boundaries; it does not modify, expose or claim control over private Agent reasoning.
 - Loop ownership slides with explicit Node granularity: broad Agent Nodes preserve more Agent autonomy, while finer semantic boundaries give the Flow more orchestration, evidence and recovery responsibility.
 - Do not infer atomic work from a small task. `Agent Node` may contain an opaque loop; `model.task + model_cli` guarantees one adapter request, while `tool.task` guarantees one fixed semantic CLI, MCP or HTTP operation and records `symphlo.tool-call-evidence.v1`.
-- Flow controls `what / who / when / handoff`; an Agent controls `how` inside its Node boundary.
+- Flow controls `what / who / when / dependencies / authority / handoff`; each
+  Agent or application controls `how` inside its Node boundary.
 - Flow definitions, Run state, Context, Artifacts and history are product truth. Agent sessions and conversations are not.
 - The public product must remain agent-agnostic and capability/adapter-driven.
+- Clerklet is the separate standalone Agent and an optional reference
+  participant. Neither repository may become the other's hidden runtime,
+  database or source-path dependency.
 - Canvas is optional infrastructure and must not define product identity or become the source of truth.
 
 ## Provenance And Public-Source Rules
