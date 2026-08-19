@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Symphlo Local</title>
+  <link rel="stylesheet" href="/flow-console/assets/styles.css?v=20260616-xyflow-layout" />
+  <link rel="stylesheet" href="/flow-console/assets/flow-canvas.css?v=20260616-xyflow" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="nav-rail">
+      <div class="brand">
+        <div class="brand-mark">S</div>
+        <div>
+          <strong>Symphlo</strong>
+          <span>Local Alpha</span>
+        </div>
+      </div>
+      <nav class="nav-items" aria-label="Flow navigation">
+        <div class="nav-group">
+          <span>入口</span>
+          <button class="nav-item active" data-page="hub" title="Flow Hub"><span class="nav-icon">H</span><span class="nav-label">首页</span></button>
+        </div>
+        <div class="nav-group">
+          <span>创建</span>
+          <button class="nav-item" data-page="templates" title="新建 Flow"><span class="nav-icon">N</span><span class="nav-label">新建</span></button>
+          <button class="nav-item" data-page="flows" title="我的 Flow"><span class="nav-icon">F</span><span class="nav-label">我的 Flow</span></button>
+          <button class="nav-item" data-page="template-admin" title="模板管理"><span class="nav-icon">T</span><span class="nav-label">模板</span></button>
+        </div>
+        <div class="nav-group">
+          <span>执行</span>
+          <button class="nav-item" data-page="capabilities" title="本地能力"><span class="nav-icon">C</span><span class="nav-label">能力</span></button>
+          <button class="nav-item" data-page="runs" title="运行记录"><span class="nav-icon">R</span><span class="nav-label">运行记录</span></button>
+        </div>
+        <div class="nav-group">
+          <span>工具</span>
+          <button class="nav-item" data-page="optimize" title="优化中心"><span class="nav-icon">O</span><span class="nav-label">优化</span></button>
+          <button class="nav-item" data-page="dev" title="开发工具"><span class="nav-icon">D</span><span class="nav-label">开发</span></button>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="title-block">
+          <span class="eyebrow">Observable Agent Orchestration</span>
+          <h1>Symphlo Local Workspace</h1>
+        </div>
+        <div class="section-tabs" aria-label="Current module pages">
+          <div class="section-tab-group" data-module="entry">
+            <span>入口</span>
+            <button class="section-tab active" data-page="hub">首页</button>
+          </div>
+          <div class="section-tab-group" data-module="design">
+            <span>创建</span>
+            <button class="section-tab" data-page="templates">新建</button>
+            <button class="section-tab" data-page="flows">我的 Flow</button>
+            <button class="section-tab" data-page="template-admin">模板</button>
+          </div>
+          <div class="section-tab-group" data-module="run">
+            <span>执行</span>
+            <button class="section-tab" data-page="capabilities">能力</button>
+            <button class="section-tab" data-page="runs">运行记录</button>
+          </div>
+          <div class="section-tab-group" data-module="tools">
+            <span>工具</span>
+            <button class="section-tab" data-page="optimize">优化</button>
+            <button class="section-tab" data-page="dev">开发</button>
+          </div>
+        </div>
+        <div class="top-actions">
+          <span class="status-chip"><span class="dot" id="status-dot"></span><span id="status">未连接</span></span>
+          <button id="refresh-catalog" class="ghost-button">刷新</button>
+        </div>
+      </header>
+
+      <main class="workspace-pages">
+        <section class="workspace-page active" id="page-hub" data-page="hub">
+          <div class="page-heading hub-heading">
+            <div>
+              <span class="section-kicker">Flow Hub</span>
+              <h2>你要从哪里开始？</h2>
+            </div>
+            <div class="hub-heading-actions">
+              <button class="primary-button hub-action" data-target-page="templates">新建 Flow</button>
+              <button class="ghost-button hub-action" data-target-page="flows">打开我的 Flow</button>
+            </div>
+          </div>
+
+          <div class="hub-page-grid">
+            <section class="hub-primary">
+              <button class="hub-card primary hub-action" data-target-page="templates" data-new-mode="template">
+                <span class="hub-icon">N</span>
+                <strong>新建 Flow</strong>
+                <p>从模板、大模型自动生成、保存 Flow 改写，或空白画布开始。</p>
+              </button>
+              <button class="hub-card hub-action" data-target-page="flows">
+                <span class="hub-icon">F</span>
+                <strong>我的 Flow</strong>
+                <p>选择已保存 Flow，直接运行、编辑、查看上次结果和失败修复。</p>
+              </button>
+              <button class="hub-card hub-action" data-target-page="template-admin">
+                <span class="hub-icon">T</span>
+                <strong>模板管理</strong>
+                <p>查看官方模板，把稳定的保存 Flow 作为自有模板候选沉淀。</p>
+              </button>
+              <button class="hub-card hub-action" data-target-page="runs">
+                <span class="hub-icon">R</span>
+                <strong>运行记录</strong>
+                <p>查看当前 Run 的状态、报告、节点日志，以及待修复失败任务。</p>
+              </button>
+              <button class="hub-card hub-action" data-target-page="optimize">
+                <span class="hub-icon">O</span>
+                <strong>优化中心</strong>
+                <p>基于足够的 case 和日志，生成 Flow 或模板优化候选。</p>
+              </button>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">New Flow</span>
+                  <h2>新建方式</h2>
+                </div>
+              </div>
+              <div class="creation-options compact-options">
+                <button class="creation-card hub-action" data-target-page="templates" data-new-mode="template">
+                  <strong>从模板新建</strong>
+                  <span>适合数据获取、数据分析、商品诊断、询盘聚类等标准任务。</span>
+                </button>
+                <button class="creation-card hub-action" data-target-page="templates" data-new-mode="ai">
+                  <strong>大模型自动新建</strong>
+                  <span>描述目标和材料，由 LLM 匹配或生成可校验 Flow。</span>
+                </button>
+                <button class="creation-card hub-action" data-target-page="flows">
+                  <strong>基于保存 Flow 修改</strong>
+                  <span>选择历史 Flow，用自然语言调整步骤、报告重点或执行方式。</span>
+                </button>
+                <button class="creation-card" data-new-blank-flow>
+                  <strong>空白画布搭建</strong>
+                  <span>从空白画布开始，手动添加Agent、LLM 和产物节点。</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Saved</span>
+                  <h2>最近保存 Flow</h2>
+                </div>
+                <button class="ghost-button hub-action" data-target-page="flows">全部</button>
+              </div>
+              <div class="hub-saved-list" id="hub-saved-flow-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Current Run</span>
+                  <h2>当前运行</h2>
+                </div>
+                <button class="ghost-button hub-action" data-target-page="runs">查看</button>
+              </div>
+              <div class="hub-run-summary" id="hub-run-summary"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-templates" data-page="templates">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">New Flow</span>
+              <h2>新建 Flow</h2>
+            </div>
+          </div>
+
+          <div class="template-page-grid">
+            <section class="surface creation-surface">
+              <div class="section-head compact">
+                <div>
+                  <span class="section-kicker">Create From</span>
+                  <h2>创建方式</h2>
+                </div>
+              </div>
+              <div class="creation-options">
+                <button class="creation-card active" data-create-mode="template">
+                  <strong>从模板新建</strong>
+                  <span>选择模板作为任务骨架，然后直接用自然语言描述需求。</span>
+                </button>
+                <button class="creation-card" data-create-mode="ai">
+                  <strong>大模型自动新建</strong>
+                  <span>直接描述目标，系统自动匹配模板或生成 Flow。</span>
+                </button>
+                <button class="creation-card hub-action" data-target-page="flows">
+                  <strong>基于保存 Flow 修改</strong>
+                  <span>从我的 Flow 里选择历史版本再 AI 编辑。</span>
+                </button>
+                <button class="creation-card" data-new-blank-flow>
+                  <strong>空白画布搭建</strong>
+                  <span>进入空白画布，手动添加和编辑节点。</span>
+                </button>
+              </div>
+            </section>
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Task Type</span>
+                  <h2>选择任务类型</h2>
+                </div>
+                <span class="counter" id="catalog-count">加载中</span>
+              </div>
+              <div class="template-list" id="template-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head compact">
+                <div>
+                  <span class="section-kicker">Prompt</span>
+                  <h2>描述你的任务</h2>
+                </div>
+              </div>
+              <div class="form-stack roomy">
+                <label class="field">
+                  <span>把你想完成的任务直接说清楚</span>
+                  <textarea id="user-request"></textarea>
+                  <small>可以写目标、数据来源、要分析什么、最后希望输出什么。模板只作为业务骨架，大模型会结合这段描述生成 Flow。</small>
+                </label>
+                <label class="field">
+                  <span>任务材料 / 输入内容</span>
+                  <textarea id="supplemental-materials"></textarea>
+                  <small>填写本次任务要用的真实输入，例如关键词“电脑”、目标 URL、商品链接、CSV/表格文本或询盘内容。</small>
+                </label>
+                <details class="advanced-settings">
+                  <summary>高级设置</summary>
+                  <div class="split-fields">
+                    <label class="field">
+                      <span>采集页数</span>
+                      <input id="max-pages" type="number" min="1" max="50" value="2" />
+                    </label>
+                    <label class="field">
+                      <span>运行模式</span>
+                      <select id="mode">
+                        <option value="semi_auto">semi_auto</option>
+                        <option value="manual">manual</option>
+                        <option value="auto">auto</option>
+                      </select>
+                    </label>
+                  </div>
+                </details>
+                <div class="form-actions">
+                  <button class="primary-button" id="draft-flow">生成 Flow</button>
+                </div>
+                <div class="generation-progress" id="generation-progress" hidden>
+                  <div class="generation-progress-head">
+                    <strong id="generation-title">正在生成 Flow</strong>
+                    <span class="pill warn" id="generation-stage">准备中</span>
+                  </div>
+                  <div class="generation-steps">
+                    <div class="generation-step" data-stage="understand">理解任务</div>
+                    <div class="generation-step" data-stage="template">结合模板</div>
+                    <div class="generation-step" data-stage="compose">生成业务步骤</div>
+                    <div class="generation-step" data-stage="validate">校验 Flow</div>
+                    <div class="generation-step" data-stage="plan">生成执行计划</div>
+                  </div>
+                  <p id="generation-message">正在准备生成。</p>
+                </div>
+                <div class="notice" id="input-message">模板加载后可生成 Flow。</div>
+                <div class="legacy-inputs" hidden>
+                  <input id="target-url" value="https://example.com" />
+                  <textarea id="target-urls"></textarea>
+                  <textarea id="inquiry-text"></textarea>
+                  <input id="keyword" value="电脑" />
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-flows" data-page="flows">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">Flows</span>
+              <h2>Flow 管理</h2>
+            </div>
+            <div class="page-heading-actions">
+              <button id="new-blank-flow-top" class="ghost-button">新建空白 Flow</button>
+              <button id="run-flow-top" class="run-button">运行当前 Flow</button>
+              <button id="save-flow-top" class="ghost-button">保存当前 Flow</button>
+            </div>
+          </div>
+
+          <div class="flow-page-grid">
+            <section class="surface saved-surface">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">Saved</span>
+                <h2>已保存 Flow</h2>
+              </div>
+              <button id="save-flow" class="ghost-button">保存</button>
+            </div>
+            <div class="saved-flow-list" id="saved-flow-list"></div>
+            </section>
+
+            <section class="canvas-pane">
+              <div class="canvas-header">
+                <div>
+                  <span class="section-kicker">Prompt Nodes</span>
+                  <h2 id="flow-name">等待生成 Flow</h2>
+                  <p id="flow-desc">选择任务类型并生成后展示给Agent或 LLM 执行的任务节点。</p>
+                </div>
+                <div class="canvas-actions">
+                  <span class="pill" id="flow-status">draft</span>
+                  <button class="ghost-button" data-add-node="agent">加Agent节点</button>
+                  <button class="ghost-button" data-add-node="capability">加能力节点</button>
+                  <button class="ghost-button" data-add-node="end">加结束节点</button>
+                  <button id="delete-selected-node" class="danger-button">删除节点</button>
+                  <button id="validate-flow" class="ghost-button">校验</button>
+                  <button id="render-plan" class="ghost-button">计划</button>
+                </div>
+              </div>
+
+              <div class="canvas-stage">
+                <div id="canvas-content" class="canvas-empty">等待 Flow</div>
+              </div>
+
+              <div class="bottom-drawer">
+                <div class="tabbar">
+                  <button class="tab-button active" data-tab="plan">计划</button>
+                  <button class="tab-button" data-tab="ai-edit">AI 编辑</button>
+                  <button class="tab-button" data-tab="dsl">DSL</button>
+                  <button class="tab-button" data-tab="status">校验</button>
+                </div>
+                <div id="plan-tab" class="tab-content active"><div class="notice">等待计划。</div></div>
+                <div id="ai-edit-tab" class="tab-content">
+                  <div class="ai-edit-panel">
+                    <label class="field">
+                      <span>编辑意图</span>
+                      <textarea id="ai-edit-request">优化这个 Flow，让报告节点更明确地输出执行边界、关键发现和下一步建议。</textarea>
+                    </label>
+                    <div class="tab-actions">
+                      <button id="ai-edit-flow" class="primary-button">生成候选</button>
+                      <button id="apply-ai-candidate" class="ghost-button" disabled>应用候选</button>
+                    </div>
+                    <div class="notice" id="ai-edit-message">生成 Flow 后可用自然语言优化当前 Flow。</div>
+                    <div id="ai-edit-result" class="ai-edit-result"></div>
+                  </div>
+                </div>
+                <div id="dsl-tab" class="tab-content">
+                  <div class="tab-actions">
+                    <button id="format-json" class="ghost-button">格式化 JSON</button>
+                  </div>
+                  <textarea id="flow-json"></textarea>
+                </div>
+                <div id="status-tab" class="tab-content"><div class="notice" id="validation-message">等待 Flow。</div></div>
+              </div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head compact">
+                <div>
+                  <span class="section-kicker">Prompt Node</span>
+                  <h2>任务节点</h2>
+                </div>
+              </div>
+              <div id="node-detail" class="node-detail empty">未选择节点</div>
+            </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-template-admin" data-page="template-admin">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">Templates</span>
+              <h2>模板管理</h2>
+            </div>
+            <div class="page-heading-actions">
+              <button class="ghost-button hub-action" data-target-page="templates">从模板新建</button>
+              <button class="ghost-button hub-action" data-target-page="flows">查看我的 Flow</button>
+            </div>
+          </div>
+
+          <div class="template-admin-grid">
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Official</span>
+                  <h2>官方模板</h2>
+                </div>
+                <span class="counter" id="official-template-count">0</span>
+              </div>
+              <div class="template-admin-list" id="official-template-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Mine</span>
+                  <h2>我的模板候选</h2>
+                </div>
+                <span class="counter" id="my-template-count">0</span>
+              </div>
+              <div class="template-admin-list" id="my-template-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Policy</span>
+                  <h2>模板沉淀口径</h2>
+                </div>
+              </div>
+              <div class="template-policy-panel">
+                <div class="notice warn">当前版本不做模板表和发布流。官方模板仍来自代码注册表；我的模板先用保存 Flow 作为候选资产。</div>
+                <div class="policy-steps">
+                  <div><strong>1. Good Case</strong><span>成功或修复成功的真实 Run，包含日志、artifact 和业务结果。</span></div>
+                  <div><strong>2. 脱敏清洗</strong><span>去除客户数据、账号信息、真实链接和偶发执行痕迹。</span></div>
+                  <div><strong>3. 抽象模板</strong><span>保留稳定任务骨架、输入槽位、节点链路、guardrails 和默认 prompt。</span></div>
+                  <div><strong>4. 人工发布</strong><span>通过 validator 和真实 case 回归后，再进入官方模板列表。</span></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-capabilities" data-page="capabilities">
+          <div class="capability-shell">
+            <header class="capability-hero">
+              <div class="capability-hero-copy">
+                <span class="section-kicker">Local Capability Library</span>
+                <h2>让本地工具成为可观察的 Node</h2>
+                <p>连接 Agent CLI、JSON CLI、MCP 或 HTTP。每个能力先验证、再绑定，执行结果进入同一条 Run 证据链。</p>
+              </div>
+              <div class="capability-hero-actions">
+                <button id="discover-capabilities" class="ghost-button"><span aria-hidden="true">⌁</span> 扫描本机</button>
+                <button id="open-capability-drawer" class="primary-button"><span aria-hidden="true">＋</span> 添加能力</button>
+              </div>
+            </header>
+
+            <div class="capability-overview" aria-label="Capability summary">
+              <div class="capability-metric"><span>已连接</span><strong id="capability-connected-count">0</strong><small>可直接绑定到 Node</small></div>
+              <div class="capability-metric"><span>待连接</span><strong id="capability-available-count">0</strong><small>扫描发现，尚未保存</small></div>
+              <div class="capability-protocols"><span>支持的协议</span><div><b>Agent CLI</b><b>JSON CLI</b><b>MCP stdio</b><b>HTTP</b></div></div>
+            </div>
+
+            <section class="surface capability-library">
+              <div class="capability-library-head">
+                <div>
+                  <span class="section-kicker">Library</span>
+                  <div class="capability-library-title"><h2>能力目录</h2><span class="counter" id="capability-count">0</span></div>
+                </div>
+                <label class="capability-search">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="capability-search" type="search" placeholder="搜索名称、ID 或协议" aria-label="搜索能力" />
+                </label>
+              </div>
+              <div class="capability-toolbar">
+                <div class="capability-filters" aria-label="能力筛选">
+                  <button class="capability-filter active" data-capability-filter="all">全部</button>
+                  <button class="capability-filter" data-capability-filter="agent_cli">Agent</button>
+                  <button class="capability-filter" data-capability-filter="tools">Tools</button>
+                </div>
+                <span id="capability-scan-message" class="capability-scan-message">扫描只读取受支持 CLI 的路径和版本，不会自动保存。</span>
+              </div>
+              <div id="capability-list" class="capability-list"></div>
+            </section>
+          </div>
+
+          <button id="capability-drawer-backdrop" class="capability-drawer-backdrop" aria-label="关闭添加能力面板" hidden></button>
+          <aside id="capability-drawer" class="capability-drawer" aria-hidden="true" aria-labelledby="capability-drawer-title">
+            <div class="capability-drawer-head">
+              <div>
+                <span class="section-kicker">New Capability</span>
+                <h2 id="capability-drawer-title">添加本地能力</h2>
+                <p>只保存固定配置，不保存 token、cookie 或环境变量。</p>
+              </div>
+              <button id="close-capability-drawer" class="icon-button" aria-label="关闭添加能力面板">×</button>
+            </div>
+            <div class="capability-drawer-body">
+              <div class="form-stack capability-form">
+                <label class="field"><span>Kind</span><select id="capability-kind"><option value="agent_cli">Agent CLI</option><option value="cli">JSON CLI</option><option value="mcp_stdio">MCP stdio</option><option value="http">HTTP</option></select></label>
+                <div class="split-fields">
+                  <label class="field"><span>ID</span><input id="capability-id" placeholder="cli.my-tool" /></label>
+                  <label class="field"><span>Name</span><input id="capability-name" placeholder="My local capability" /></label>
+                </div>
+                <label class="field capability-process-field"><span>Executable</span><input id="capability-executable" placeholder="/absolute/path/to/executable or command on PATH" /></label>
+                <label class="field capability-process-field"><span>Arguments (JSON array)</span><textarea id="capability-args">[]</textarea></label>
+                <label class="field capability-agent-field"><span>Agent input</span><select id="capability-input-mode"><option value="stdin">Prompt on stdin</option><option value="argument">Prompt as final argument</option></select></label>
+                <label class="field capability-mcp-field"><span>MCP tool</span><input id="capability-tool" placeholder="tool_name" /></label>
+                <label class="field capability-http-field"><span>HTTP URL</span><input id="capability-url" placeholder="http://127.0.0.1:3000/invoke" /></label>
+                <label class="field capability-http-field"><span>HTTP method</span><select id="capability-method"><option value="POST">POST</option><option value="GET">GET</option></select></label>
+                <label class="field capability-static-field"><span>Static arguments/body (JSON object)</span><textarea id="capability-static">{}</textarea><small>运行时会把已接受的上游 Context 放入 <code>context</code>。</small></label>
+                <div id="capability-message" class="notice">填写合同后先验证，再保存并绑定到 Canvas Node。</div>
+              </div>
+            </div>
+            <div class="capability-drawer-footer">
+              <span>Esc 关闭</span>
+              <div class="button-row">
+                <button id="validate-capability" class="ghost-button">验证并探测</button>
+                <button id="save-capability" class="primary-button">保存能力</button>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="workspace-page" id="page-runs" data-page="runs">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">Runs</span>
+              <h2>执行</h2>
+            </div>
+            <button class="run-button" id="create-run-top">运行当前 Flow</button>
+          </div>
+
+          <div class="run-page-grid">
+          <section class="surface run-surface">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">Run</span>
+                <h2>执行</h2>
+              </div>
+              <button class="run-button" id="create-run">运行</button>
+            </div>
+            <div class="run-summary">
+              <label class="field">
+                <span>Executor</span>
+                <select id="executor-select">
+                  <option value="deterministic">Deterministic demo</option>
+                  <option value="codex">Codex CLI</option>
+                  <option value="opencode">OpenCode CLI</option>
+                </select>
+              </label>
+              <div>
+                <span>Run ID</span>
+                <strong id="run-id">-</strong>
+              </div>
+              <div>
+                <span>状态</span>
+                <strong id="run-status">未创建</strong>
+              </div>
+              <div>
+                <span>下一任务</span>
+                <strong id="next-task">-</strong>
+              </div>
+            </div>
+            <div class="report-card waiting" id="report-card">
+              <div>
+                <span class="section-kicker">Report</span>
+                <strong id="report-title">等待报告</strong>
+                <p id="report-body">Runtime 完成后这里会显示 Markdown 报告。</p>
+              </div>
+              <a id="report-link" class="report-link" href="#" target="_blank" rel="noreferrer" hidden>打开报告</a>
+            </div>
+            <div class="repair-card" id="repair-card">
+              <div class="repair-head">
+                <div>
+                  <span class="section-kicker">Repair</span>
+                  <strong id="repair-title">等待失败节点</strong>
+                </div>
+                <span class="pill" id="repair-status">idle</span>
+              </div>
+              <p id="repair-body">Run 失败后可生成候选修复。</p>
+              <div class="button-row repair-actions">
+                <button id="suggest-repair" disabled>生成修复</button>
+                <button id="apply-repair-candidate" disabled>应用候选</button>
+              </div>
+              <div id="repair-result" class="ai-edit-result"></div>
+            </div>
+            <div class="command" id="runtime-command">Desktop owns the Local Runtime and invokes the selected Agent CLI.</div>
+            <div class="runtime-hint" id="runtime-llm-hint"></div>
+            <div class="button-row">
+              <button id="copy-runtime" disabled hidden>复制</button>
+              <button id="refresh-run" disabled>刷新状态</button>
+              <button id="cancel-run" class="danger-button" disabled>停止 Run</button>
+              <button id="close-run" disabled>关闭面板</button>
+            </div>
+            <div class="notice" id="run-message">当前没有运行。</div>
+          </section>
+
+          <section class="surface timeline-surface">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">Timeline</span>
+                <h2>节点状态</h2>
+              </div>
+            </div>
+            <div class="run-steps" id="run-steps"></div>
+          </section>
+
+          <section class="surface timeline-surface">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">History</span>
+                <h2>运行记录</h2>
+              </div>
+            </div>
+            <div class="run-history-list" id="run-history-list"></div>
+          </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-dev" data-page="dev">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">Developer</span>
+              <h2>开发工具</h2>
+            </div>
+          </div>
+
+          <div class="dev-page-grid">
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Local Agent</span>
+                  <h2>任务调试</h2>
+                </div>
+              </div>
+              <div class="dev-panel">
+                <div class="button-row">
+                  <button id="poll-task" disabled>领取任务</button>
+                  <button id="mock-result" disabled>提交 Mock</button>
+                  <button id="mock-failure" disabled>提交失败</button>
+                </div>
+                <div class="notice">这里仅用于本地调试协议，不是用户主执行路径。</div>
+              </div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Debug</span>
+                  <h2>运行状态</h2>
+                </div>
+              </div>
+              <div class="dev-panel">
+                <div class="run-summary compact-summary">
+                  <div>
+                    <span>当前保存 Flow</span>
+                    <strong id="dev-flow-id">-</strong>
+                  </div>
+                  <div>
+                    <span>当前 Run</span>
+                    <strong id="dev-run-id">-</strong>
+                  </div>
+                  <div>
+                    <span>runtime 命令</span>
+                    <strong id="dev-runtime-command">-</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="workspace-page" id="page-optimize" data-page="optimize">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">Optimization</span>
+              <h2>优化中心</h2>
+            </div>
+            <button class="ghost-button hub-action" data-target-page="flows">选择保存 Flow</button>
+          </div>
+
+          <div class="optimize-page-grid">
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Case Driven</span>
+                  <h2>优化保存 Flow</h2>
+                </div>
+              </div>
+              <div class="optimize-panel">
+                <div class="notice warn">当成功 case、失败 case、修复记录和 artifact 摘要足够后，可生成候选优化。当前版本只展示入口，不自动发布。</div>
+                <div class="optimization-steps">
+                  <div><strong>1. 选择保存 Flow</strong><span>从我的 Flow 中选择要优化的稳定版本。</span></div>
+                  <div><strong>2. 汇总 case lessons</strong><span>查看成功、失败和 repaired case 的共性问题。</span></div>
+                  <div><strong>3. 生成优化候选</strong><span>LLM 输出候选 Flow 或模板 patch，并经过 validator。</span></div>
+                  <div><strong>4. 人工确认发布</strong><span>用户对比旧版和新版后，显式保存为新版本。</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Template Evolution</span>
+                  <h2>优化模板</h2>
+                </div>
+              </div>
+              <div class="optimize-panel">
+                <div class="notice">模板进化后置：只有当多个 Flow 的经验稳定重复出现，才建议把 lesson 提升为模板默认步骤或节点 prompt。</div>
+                <div class="hub-metrics">
+                  <div><span>保存 Flow</span><strong id="optimize-flow-count">0</strong></div>
+                  <div><span>当前 Run</span><strong id="optimize-run-status">-</strong></div>
+                  <div><span>Repair 状态</span><strong id="optimize-repair-status">-</strong></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/flow-console/assets/app.js?v=20260616-xyflow"></script>
+  <script type="module" src="/flow-console/assets/flow-canvas.js?v=20260616-xyflow"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "@symphlo/web",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "lint": "node --check public/flow-console/assets/app.js && node --check src/flow-canvas/adapters.js",
+    "test": "node --test",
+    "typecheck": "vite build"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.11.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.3",
+    "vite": "8.1.4"
+  }
+}
