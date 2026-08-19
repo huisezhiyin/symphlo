@@ -4,12 +4,12 @@
 - Workspace: `/Users/wuyue/github_project/symphlo`
 - Active Skill / Workflow: `new-chat-ready`; A018 evaluation Spec
 - Recovery Sources: current chat
-- New Chat Capability Check: `available` via Codex `create_thread`
+- New Chat Capability Check: direct task created via Codex `create_thread`
 - Git Protection: `local snapshot verified`; no remote push authorized
 - Snapshot Ref: original unborn `main` -> `codex/new-chat-snapshot-20260819-1435-a018-qwenwork-eval` @ source snapshot `202fce7`
 - Remote Protection: `not requested`
 - Remaining Dirty State: `.cache/`, all `node_modules/`, generated `dist/` and `artifacts/`, bytecode, historical feature/local docs, `uv.lock` and other unrelated local records intentionally excluded from the reviewed snapshot
-- Delivery Mode: `direct Codex thread planned`; prompt is also portable below
+- Delivery Mode: direct Codex task `01a018be-43cf-7762-a39d-968399e58b11`; prompt is also portable below
 - Current Goal: prove that QwenWork + Symphlo is non-inferior on normal office work and materially better for repeatable, long, complex, checkpointed work at office-worker scale.
 - Status: `in-progress; E2 complete, E3 design checkpoint`
 - Confidence: `high`; Spec, private evidence and validation are current.
