@@ -28,7 +28,10 @@ reviewed Flow that ran correctly on a changed input and a bounded failure.
 
 This is development evidence, not an official benchmark score or a claim about
 every Agent task. The sanitized aggregate data is available in
-[the public evaluation summary](qwenwork-bounded-evaluation-summary.json).
+[the public evaluation summary](qwenwork-bounded-evaluation-summary.json). The
+[methodology and reproducibility notes](qwenwork-bounded-evaluation-methodology.md)
+publish the per-Run calculation rules, arm contracts, frozen schedules,
+acceptance criteria, exclusions and threats to validity.
 
 ## The result in one table
 
@@ -36,7 +39,7 @@ every Agent task. The sanitized aggregate data is available in
 | --- | --- | --- |
 | Ordinary-task quality | Four bounded office-task cases | Direct 3/4, Skill available 4/4, Symphlo 4/4 |
 | Fixed long-chain execution | Three paired synthetic expense inputs | Direct 3/3 and Symphlo 3/3 accepted |
-| Speed on the fixed procedure | Same selected Agent, inputs, tools and acceptance contract | Median 136.729s direct vs 22.073s with Symphlo |
+| Speed on the fixed procedure | Same selected Agent/model binding, inputs, business-effect budget and acceptance contract | Median 136.729s direct vs 22.073s with Symphlo |
 | Agent operational work | Median observed operational tool calls | 24 direct vs 2 with Symphlo |
 | Generated-Flow reuse | Changed input plus bounded read timeout | 2/2 live replay accepted, zero provider retry |
 
@@ -115,6 +118,28 @@ classification; the Flow remained responsible for order, tools, recovery and
 evidence. No manual Flow edit or provider retry was used between generation and
 replay.
 
+### Skill and Flow are compared on the layer they actually own
+
+The ordinary cohort does not show a quality win over Skill: both the
+Skill-available arm and Symphlo accepted 4/4. The stronger claim is operational
+and applies to a procedural Skill whose purpose is to make the same multi-step
+task run repeatedly.
+
+| Property | Task-specific Skill available to an Agent | Generated and applied Flow |
+| --- | --- | --- |
+| Primary responsibility | Reusable instructions and execution knowledge inside one Agent task | Repeated task structure, accepted state, effects and handoffs |
+| Whether the procedure runs | The Agent decides whether and how to invoke the Skill | Starting the Flow explicitly admits the versioned procedure |
+| Cross-step source of truth | Usually the Agent session and its working files | Flow, Run, Context, events and Artifacts |
+| Failure recovery | Guidance inside the Agent loop | Runtime-owned Node state and bounded recovery policy |
+| Effect control | Instructions tell the Agent what it may do | Each Node declares effects and the runtime records execution |
+| Authoring path demonstrated here | No authoring-time comparison was measured | Successful conversation → generated FlowDraft → review → Human Apply |
+| Evaluated quality | 4/4 ordinary cases accepted | 4/4 ordinary cases and 2/2 generated-Flow live replays accepted |
+
+This is not an argument against Skills. A Skill can still run inside the bounded
+Agent Node. It is an argument against using a loose Skill invocation as the
+only operating model for a procedure whose state, effects and recovery matter
+outside one Agent session.
+
 For this type of deterministic procedure, the result is meaningfully more than
 a reusable prompt: it is an applied operating model. It can replace a manually
 maintained procedural Skill while remaining easier to create from a successful
@@ -160,8 +185,33 @@ work that has already become known.
 ## Evidence boundary
 
 All evaluation inputs were synthetic and all business effects were sandboxed.
-The public summary contains aggregate results only; it intentionally excludes
+The public summary contains sanitized results only; it intentionally excludes
 provider task identifiers, transcripts, private adapters, traces and fixtures.
+It now also contains every sanitized per-Run row used to calculate the reported
+ordinary and fixed-orchestration metrics, so a clean checkout can recompute the
+headline values without access to private evidence.
+
+What an external reviewer can verify is deliberately explicit:
+
+| Verification question | Publicly supported? |
+| --- | --- |
+| Recompute every headline aggregate from retained sanitized rows | Yes |
+| Inspect the arm definitions, schedule, acceptance rules, exclusions and limitations | Yes |
+| Confirm the evaluation files survive the fail-closed public export | Yes |
+| Independently authenticate each raw QwenWork event or transcript | No; raw provider evidence remains private |
+| Guarantee identical latency or Agent behaviour in a later live repetition | No; provider outcomes can drift |
+
+Accordingly, this pack is **metric-reproducible and protocol-documented**, not
+an independently audited raw-evidence archive. The distinction is part of the
+claim boundary, not a footnote.
+
+Earlier superseded development attempts are disclosed in the public summary and
+methodology rather than silently discarded. The ordinary smoke had eight
+pre-current-contract exclusions. The strong comparison followed two stopped
+development batches with three invalid positions before the corrected six-row
+v3 contract was frozen. The first two generation designs were also invalid.
+Those histories are why this remains development evidence rather than a formal
+holdout result.
 
 The evidence supports:
 

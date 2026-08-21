@@ -195,6 +195,31 @@ These layers compose. A Symphlo Node may invoke a Skill inside an Agent's normal
 loop. The distinction is ownership: execution knowledge can remain inside the
 Node while accepted task state remains outside it.
 
+### Bounded evidence with QwenWork
+
+A small, unscored development evaluation tested this positioning with QwenWork
+on synthetic, sandboxed office tasks:
+
+- ordinary-task acceptance was direct 3/4, Skill available 4/4 and Symphlo 4/4;
+- on three paired inputs for one fixed 18-Node expense procedure, both direct
+  and Symphlo accepted 3/3, while median elapsed time was 136.729s versus
+  22.073s and median Agent operational calls were 24 versus 2;
+- one successful conversation was converted into a reviewed Flow and accepted
+  2/2 live replays, including one bounded read-timeout recovery.
+
+These are case-bounded engineering observations, not an official benchmark or
+a population-level superiority claim. Raw provider evidence remains private,
+task-scoped token telemetry was unavailable, and the sample is small. The
+[report](docs/vision/qwenwork-bounded-evaluation.md),
+[methodology](docs/vision/qwenwork-bounded-evaluation-methodology.md) and
+[sanitized per-Run data](docs/vision/qwenwork-bounded-evaluation-summary.json)
+make the supported claims, exclusions and limitations explicit. Recompute the
+published aggregates from a clean checkout:
+
+```bash
+python3 scripts/recalculate_qwenwork_evaluation.py
+```
+
 ## Multi-Agent without theatre
 
 An Agent is a first-class Node executor. Different Nodes may resolve to
