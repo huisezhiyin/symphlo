@@ -1,0 +1,162 @@
+{
+  "schema_version": "symphlo.public-evaluation-summary.v1",
+  "title": "Bounded QwenWork evaluation for repeated office work",
+  "completed_on": "2026-08-21",
+  "status": "development_evidence_case_bounded",
+  "data_policy": {
+    "inputs": "synthetic",
+    "effects": "sandboxed",
+    "provider_task_ids_included": false,
+    "transcripts_included": false,
+    "token_usage": "unavailable_not_estimated",
+    "public_rows": "sanitized_projection_from_retained_private_terminal_records",
+    "raw_provider_evidence_public": false,
+    "independent_external_audit": "not_performed",
+    "metric_reproducibility": "supported_from_public_per_run_rows",
+    "protocol_replication": "documented_but_exact_private_assets_not_redistributed",
+    "raw_event_authentication": "not_supported_from_public_repository"
+  },
+  "ordinary_office_tasks": {
+    "case_count": 4,
+    "accepted": {
+      "qwenwork_direct": 3,
+      "qwenwork_skill_available": 4,
+      "qwenwork_symphlo": 4
+    },
+    "runs": [
+      {"scenario": "ordinary-1", "arm": "qwenwork_direct", "accepted": true, "elapsed_seconds": 60.137},
+      {"scenario": "ordinary-1", "arm": "qwenwork_skill_available", "accepted": true, "elapsed_seconds": 130.171},
+      {"scenario": "ordinary-1", "arm": "qwenwork_symphlo", "accepted": true, "elapsed_seconds": 121.668},
+      {"scenario": "ordinary-2", "arm": "qwenwork_direct", "accepted": true, "elapsed_seconds": 74.031},
+      {"scenario": "ordinary-2", "arm": "qwenwork_skill_available", "accepted": true, "elapsed_seconds": 25.419},
+      {"scenario": "ordinary-2", "arm": "qwenwork_symphlo", "accepted": true, "elapsed_seconds": 47.445},
+      {"scenario": "ordinary-3", "arm": "qwenwork_direct", "accepted": false, "elapsed_seconds": 65.165},
+      {"scenario": "ordinary-3", "arm": "qwenwork_skill_available", "accepted": true, "elapsed_seconds": 143.596},
+      {"scenario": "ordinary-3", "arm": "qwenwork_symphlo", "accepted": true, "elapsed_seconds": 149.582},
+      {"scenario": "ordinary-4", "arm": "qwenwork_direct", "accepted": true, "elapsed_seconds": 197.429},
+      {"scenario": "ordinary-4", "arm": "qwenwork_skill_available", "accepted": true, "elapsed_seconds": 183.649},
+      {"scenario": "ordinary-4", "arm": "qwenwork_symphlo", "accepted": true, "elapsed_seconds": 139.121}
+    ],
+    "pre_cohort_exclusions": {
+      "count": 8,
+      "by_reason": {
+        "superseded_contract_conformance_defect": 6,
+        "harness_startup_before_model_execution": 2
+      },
+      "note": "These development attempts used superseded contracts or did not reach model execution. They remain retained privately and were not reclassified as current-contract outcomes."
+    },
+    "claim": "No quality degradation was observed in this bounded development sample. Symphlo-over-Skill speed or quality superiority is not claimed here."
+  },
+  "fixed_expense_orchestration": {
+    "paired_input_count": 3,
+    "provider_tasks_per_position": 1,
+    "provider_retry_limit": 0,
+    "accepted": {
+      "qwenwork_direct": 3,
+      "qwenwork_symphlo": 3
+    },
+    "runs": [
+      {
+        "scenario": "finance",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 136.729,
+        "agent_operational_calls": {"shell": 18, "write": 6}
+      },
+      {
+        "scenario": "finance",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 22.073,
+        "agent_operational_calls": {"write": 2}
+      },
+      {
+        "scenario": "sales",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 21.669,
+        "agent_operational_calls": {"write": 2}
+      },
+      {
+        "scenario": "sales",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 142.305,
+        "agent_operational_calls": {"shell": 12, "read": 2, "write": 4}
+      },
+      {
+        "scenario": "operations",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 131.892,
+        "agent_operational_calls": {"shell": 18, "read": 2, "write": 6}
+      },
+      {
+        "scenario": "operations",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 26.547,
+        "agent_operational_calls": {"write": 2}
+      }
+    ],
+    "superseded_development_attempts": {
+      "count": 3,
+      "note": "Two earlier stopped batches exposed harness/tool-contract defects. Their three invalid positions remain retained privately. The six public rows come from the prospectively frozen corrected v3 contract and were not replacements within that batch."
+    },
+    "elapsed_seconds": {
+      "qwenwork_direct_median": 136.729,
+      "qwenwork_symphlo_median": 22.073,
+      "qwenwork_direct_mean": 136.975,
+      "qwenwork_symphlo_mean": 23.43,
+      "symphlo_reduction_percent_range": [79.9, 84.8]
+    },
+    "agent_operational_calls_median": {
+      "qwenwork_direct": 24,
+      "qwenwork_symphlo": 2
+    },
+    "business_contract": {
+      "flow_node_count": 18,
+      "bounded_agent_node_count": 1,
+      "business_tool_kind_count": 6,
+      "duplicate_critical_effect_count": 0
+    }
+  },
+  "conversation_to_reusable_flow": {
+    "generated_flow_node_count": 18,
+    "human_apply_required": true,
+    "manual_flow_edits_before_replay": 0,
+    "provider_retry_limit": 0,
+    "superseded_generation_attempts": {
+      "count": 2,
+      "note": "An initial one-shot attempt and the first staged contract were invalid and remain retained privately. The accepted staged-v2 artifacts were not retries inside either frozen attempt."
+    },
+    "live_replay": [
+      {
+        "scenario": "changed_business_input",
+        "accepted": true,
+        "elapsed_seconds": 28.313,
+        "flow_nodes_succeeded": 18
+      },
+      {
+        "scenario": "bounded_read_timeout",
+        "accepted": true,
+        "elapsed_seconds": 27.028,
+        "flow_nodes_succeeded": 18,
+        "recovery_outcomes": ["timeout", "success"]
+      }
+    ],
+    "claim": "One successful conversation was converted into a reviewed, applied and live-reused Flow for a deterministic office procedure. Universal Skill replacement is not claimed."
+  },
+  "supported_claims": [
+    "case-bounded non-degradation on ordinary office tasks",
+    "descriptive speed and Agent operational-work advantage on one fixed long-chain procedure",
+    "case-bounded replacement of a hand-authored procedural Skill with a generated reviewed Flow"
+  ],
+  "unsupported_claims": [
+    "population-level statistical non-inferiority",
+    "superiority on open-ended exploration",
+    "provider-wide reliability",
+    "token or currency savings",
+    "universal replacement of knowledge or tool Skills"
+  ]
+}
