@@ -1,0 +1,82 @@
+{
+  "schema_version": "symphlo.public-evaluation-summary.v1",
+  "title": "Bounded QwenWork evaluation for repeated office work",
+  "completed_on": "2026-08-21",
+  "status": "development_evidence_case_bounded",
+  "data_policy": {
+    "inputs": "synthetic",
+    "effects": "sandboxed",
+    "provider_task_ids_included": false,
+    "transcripts_included": false,
+    "token_usage": "unavailable_not_estimated"
+  },
+  "ordinary_office_tasks": {
+    "case_count": 4,
+    "accepted": {
+      "qwenwork_direct": 3,
+      "qwenwork_skill_available": 4,
+      "qwenwork_symphlo": 4
+    },
+    "claim": "No quality degradation was observed in this bounded development sample. Symphlo-over-Skill speed or quality superiority is not claimed here."
+  },
+  "fixed_expense_orchestration": {
+    "paired_input_count": 3,
+    "provider_tasks_per_position": 1,
+    "provider_retry_limit": 0,
+    "accepted": {
+      "qwenwork_direct": 3,
+      "qwenwork_symphlo": 3
+    },
+    "elapsed_seconds": {
+      "qwenwork_direct_median": 136.729,
+      "qwenwork_symphlo_median": 22.073,
+      "qwenwork_direct_mean": 136.975,
+      "qwenwork_symphlo_mean": 23.43,
+      "symphlo_reduction_percent_range": [79.9, 84.8]
+    },
+    "agent_operational_calls_median": {
+      "qwenwork_direct": 24,
+      "qwenwork_symphlo": 2
+    },
+    "business_contract": {
+      "flow_node_count": 18,
+      "bounded_agent_node_count": 1,
+      "business_tool_kind_count": 6,
+      "duplicate_critical_effect_count": 0
+    }
+  },
+  "conversation_to_reusable_flow": {
+    "generated_flow_node_count": 18,
+    "human_apply_required": true,
+    "manual_flow_edits_before_replay": 0,
+    "provider_retry_limit": 0,
+    "live_replay": [
+      {
+        "scenario": "changed_business_input",
+        "accepted": true,
+        "elapsed_seconds": 28.313,
+        "flow_nodes_succeeded": 18
+      },
+      {
+        "scenario": "bounded_read_timeout",
+        "accepted": true,
+        "elapsed_seconds": 27.028,
+        "flow_nodes_succeeded": 18,
+        "recovery_outcomes": ["timeout", "success"]
+      }
+    ],
+    "claim": "One successful conversation was converted into a reviewed, applied and live-reused Flow for a deterministic office procedure. Universal Skill replacement is not claimed."
+  },
+  "supported_claims": [
+    "case-bounded non-degradation on ordinary office tasks",
+    "descriptive speed and Agent operational-work advantage on one fixed long-chain procedure",
+    "case-bounded replacement of a hand-authored procedural Skill with a generated reviewed Flow"
+  ],
+  "unsupported_claims": [
+    "population-level statistical non-inferiority",
+    "superiority on open-ended exploration",
+    "provider-wide reliability",
+    "token or currency savings",
+    "universal replacement of knowledge or tool Skills"
+  ]
+}

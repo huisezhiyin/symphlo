@@ -396,6 +396,7 @@ make check
 ## Read next
 
 - [`docs/vision/observable-outer-agent-loop.md`](docs/vision/observable-outer-agent-loop.md) — the complete viewpoint.
+- [`docs/vision/qwenwork-bounded-evaluation.md`](docs/vision/qwenwork-bounded-evaluation.md) — bounded evidence for fixed, repeated office work and generated-Flow reuse.
 - [Why General-Purpose Agents Are a Trap](https://github.com/huisezhiyin/sdd-riper/blob/main/docs/general-purpose-agents-are-a-trap.md) — the Chinese-language background essay behind the product motivation.
 - [`docs/demo/README.md`](docs/demo/README.md) — demo and evidence guide.
 - [`PROJECT_SPEC.md`](PROJECT_SPEC.md) — durable product and architecture contract.
