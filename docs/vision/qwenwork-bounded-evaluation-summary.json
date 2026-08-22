@@ -1,7 +1,7 @@
 {
-  "schema_version": "symphlo.public-evaluation-summary.v1",
+  "schema_version": "symphlo.public-evaluation-summary.v2",
   "title": "Bounded QwenWork evaluation for repeated office work",
-  "completed_on": "2026-08-21",
+  "completed_on": "2026-08-22",
   "status": "development_evidence_case_bounded",
   "data_policy": {
     "inputs": "synthetic",
@@ -120,6 +120,145 @@
       "business_tool_kind_count": 6,
       "duplicate_critical_effect_count": 0
     }
+  },
+  "fixed_orchestration_confirmation": {
+    "family_count": 2,
+    "provider_tasks_per_position": 1,
+    "provider_retry_limit": 0,
+    "minimum_inter_position_gap_seconds": 300,
+    "runs": [
+      {
+        "family": "periodic_business",
+        "condition": "nominal",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 131.703,
+        "agent_operational_calls": {"shell": 10, "read": 1, "write": 2},
+        "skill_invocation_observed": false
+      },
+      {
+        "family": "periodic_business",
+        "condition": "nominal",
+        "arm": "qwenwork_skill_available",
+        "accepted": true,
+        "elapsed_seconds": 147.038,
+        "agent_operational_calls": {"shell": 9, "read": 1, "write": 3},
+        "skill_invocation_observed": false
+      },
+      {
+        "family": "periodic_business",
+        "condition": "nominal",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 26.489,
+        "agent_operational_calls": {"write": 1},
+        "skill_invocation_observed": false
+      },
+      {
+        "family": "periodic_business",
+        "condition": "fault",
+        "arm": "qwenwork_skill_available",
+        "accepted": true,
+        "elapsed_seconds": 146.767,
+        "agent_operational_calls": {"shell": 9, "read": 1, "write": 1},
+        "skill_invocation_observed": false,
+        "recovery_outcomes": ["timeout", "success"]
+      },
+      {
+        "family": "periodic_business",
+        "condition": "fault",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 26.533,
+        "agent_operational_calls": {"write": 1},
+        "skill_invocation_observed": false,
+        "recovery_outcomes": ["timeout", "success"]
+      },
+      {
+        "family": "periodic_business",
+        "condition": "fault",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 141.998,
+        "agent_operational_calls": {"shell": 10, "read": 1, "write": 4},
+        "skill_invocation_observed": false,
+        "recovery_outcomes": ["timeout", "success"]
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "nominal",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 20.700,
+        "agent_operational_calls": {"write": 1},
+        "skill_invocation_observed": false,
+        "memory_tool_calls": 0
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "nominal",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 170.978,
+        "agent_operational_calls": {"shell": 5, "read": 2, "write": 1},
+        "skill_invocation_observed": false,
+        "memory_tool_calls": 0
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "nominal",
+        "arm": "qwenwork_skill_available",
+        "accepted": true,
+        "elapsed_seconds": 206.122,
+        "agent_operational_calls": {"shell": 5, "read": 1, "skill": 1},
+        "skill_invocation_observed": true,
+        "memory_tool_calls": 0
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "fault",
+        "arm": "qwenwork_direct",
+        "accepted": true,
+        "elapsed_seconds": 115.846,
+        "agent_operational_calls": {"shell": 10},
+        "skill_invocation_observed": false,
+        "memory_tool_calls": 0,
+        "recovery_outcomes": ["timeout", "success"]
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "fault",
+        "arm": "qwenwork_symphlo",
+        "accepted": true,
+        "elapsed_seconds": 20.795,
+        "agent_operational_calls": {"write": 1},
+        "skill_invocation_observed": false,
+        "memory_tool_calls": 0,
+        "recovery_outcomes": ["timeout", "success"]
+      },
+      {
+        "family": "expense_audit_capability_class",
+        "condition": "fault",
+        "arm": "qwenwork_skill_available",
+        "accepted": true,
+        "elapsed_seconds": 172.079,
+        "agent_operational_calls": {"shell": 6, "read": 1, "skill": 1, "write": 1},
+        "skill_invocation_observed": true,
+        "memory_tool_calls": 0,
+        "recovery_outcomes": ["timeout", "success"]
+      }
+    ],
+    "business_contracts": {
+      "periodic_business": {"flow_node_count": 17, "artifact_count": 3, "business_tool_kind_count": 6},
+      "expense_audit_capability_class": {"flow_node_count": 18, "bounded_agent_node_count": 1, "artifact_count": 3, "business_tool_kind_count": 6}
+    },
+    "claim": "Two fixed nominal/fault families completed every Native, Skill-available and Symphlo position. This is case-bounded development confirmation, not a formal holdout or population estimate.",
+    "limitations": [
+      "The periodic-business Skill was available but not invoked in either row.",
+      "The expense Skill was invoked in both rows.",
+      "The live expense cohort did not invoke a local planning tool; planning classification is covered by offline contract tests.",
+      "Task-scoped provider token telemetry remained unavailable and was not estimated."
+    ]
   },
   "conversation_to_reusable_flow": {
     "generated_flow_node_count": 18,

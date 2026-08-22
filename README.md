@@ -276,6 +276,11 @@ on synthetic, sandboxed office tasks:
 - on three paired inputs for one fixed 18-Node expense procedure, both direct
   and Symphlo accepted 3/3, while median elapsed time was 136.729s versus
   22.073s and median Agent operational calls were 24 versus 2;
+- two later frozen nominal/fault families completed all 12 Native,
+  Skill-available and Symphlo positions with one task per position and zero
+  provider retry; Symphlo used a median one Agent operational call in both
+  families versus 14/12 Native/Skill calls for periodic business and 9/8 for
+  expense audit;
 - one successful conversation was converted into a reviewed Flow and accepted
   2/2 live replays, including one bounded read-timeout recovery.
 

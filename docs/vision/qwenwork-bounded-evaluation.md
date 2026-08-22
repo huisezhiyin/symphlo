@@ -41,6 +41,7 @@ acceptance criteria, exclusions and threats to validity.
 | Fixed long-chain execution | Three paired synthetic expense inputs | Direct 3/3 and Symphlo 3/3 accepted |
 | Speed on the fixed procedure | Same selected Agent/model binding, inputs, business-effect budget and acceptance contract | Median 136.729s direct vs 22.073s with Symphlo |
 | Agent operational work | Median observed operational tool calls | 24 direct vs 2 with Symphlo |
+| Frozen nominal/fault confirmation | Two fixed families in Native / Skill-available / Symphlo arms | 12/12 accepted; one task per position, zero provider retry |
 | Generated-Flow reuse | Changed input plus bounded read timeout | 2/2 live replay accepted, zero provider retry |
 
 ## No observed degradation on ordinary office work
@@ -84,6 +85,42 @@ This is the product advantage in its proper scope:
 
 > Agent judgement stays flexible. Repeated business structure stops being
 > improvised.
+
+### A second frozen confirmation across Native, Skill and Symphlo
+
+A later initial-report cohort added two prospectively frozen nominal/fault
+families and the Skill-available arm. Every one of the twelve positions was
+accepted. Each position used one fresh provider task, zero provider retry and
+at least 300 seconds of inter-position pacing.
+
+| Family | Native median | Skill-available median | Symphlo median | Median Agent operational calls N / P / S |
+| --- | ---: | ---: | ---: | ---: |
+| Periodic business package | 136.851s | 146.903s | 26.511s | 14 / 12 / 1 |
+| Expense audit | 143.412s | 189.101s | 20.748s | 9 / 8 / 1 |
+
+The expense family also preserves the individual nominal and fault rows:
+
+| Condition | Native | Skill available | Symphlo | Native / Symphlo | Skill / Symphlo |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Nominal | 170.978s | 206.122s | 20.700s | 8.260x | 9.958x |
+| Bounded read timeout | 115.846s | 172.079s | 20.795s | 5.571x | 8.275x |
+
+All six fault rows across the two families recovered the injected timeout with
+the declared bounded retry and no duplicate critical effect. The expense Skill
+was actually invoked in both Skill rows; the periodic-business Skill was
+available but was not invoked, so those two rows remain intent-to-treat.
+
+This confirmation used a fail-closed capability-class harness: local workspace
+and planning work was measured, Skill was permitted only in the Skill arm, and
+memory, Web/network, external MCP, delegation and unknown capabilities were
+prohibited. All expense rows observed zero memory calls. No live row happened
+to invoke a planning tool, so the planning classification itself is supported
+by offline contract tests rather than a live provider observation.
+
+These are still two small development families, not a formal holdout or a
+population estimate. They strengthen the mechanism evidence: the Flow arm kept
+the same business acceptance and fault-recovery contract while requiring much
+less Agent orchestration work.
 
 ## Why this can be simpler than a procedural Skill
 
@@ -209,7 +246,9 @@ Earlier superseded development attempts are disclosed in the public summary and
 methodology rather than silently discarded. The ordinary smoke had eight
 pre-current-contract exclusions. The strong comparison followed two stopped
 development batches with three invalid positions before the corrected six-row
-v3 contract was frozen. The first two generation designs were also invalid.
+v3 contract was frozen. The later nominal/fault confirmation also followed
+stopped harness-repair cohorts; their observations remain retained and were not
+reclassified or resumed. The first two generation designs were also invalid.
 Those histories are why this remains development evidence rather than a formal
 holdout result.
 
