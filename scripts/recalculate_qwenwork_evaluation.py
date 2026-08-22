@@ -94,6 +94,73 @@ def calculate(value: dict[str, Any]) -> dict[str, Any]:
         for scenario in scenarios
     }
 
+    confirmation = value["fixed_orchestration_confirmation"]
+    confirmation_runs = confirmation["runs"]
+    confirmation_arms = (
+        "qwenwork_direct",
+        "qwenwork_skill_available",
+        "qwenwork_symphlo",
+    )
+    confirmation_families: dict[str, Any] = {}
+    for family in sorted({str(item["family"]) for item in confirmation_runs}):
+        family_runs = [item for item in confirmation_runs if item["family"] == family]
+        family_elapsed = {
+            arm: [
+                float(item["elapsed_seconds"])
+                for item in family_runs
+                if item["arm"] == arm
+            ]
+            for arm in confirmation_arms
+        }
+        family_operational = {
+            arm: [
+                sum(int(count) for count in item["agent_operational_calls"].values())
+                for item in family_runs
+                if item["arm"] == arm
+            ]
+            for arm in confirmation_arms
+        }
+        ratios: dict[str, dict[str, float]] = {}
+        for condition in sorted({str(item["condition"]) for item in family_runs}):
+            condition_runs = {
+                str(item["arm"]): float(item["elapsed_seconds"])
+                for item in family_runs
+                if item["condition"] == condition
+            }
+            symphlo = condition_runs["qwenwork_symphlo"]
+            ratios[condition] = {
+                "qwenwork_direct_over_symphlo": round(
+                    condition_runs["qwenwork_direct"] / symphlo, 3
+                ),
+                "qwenwork_skill_available_over_symphlo": round(
+                    condition_runs["qwenwork_skill_available"] / symphlo, 3
+                ),
+            }
+        confirmation_families[family] = {
+            "run_count": len(family_runs),
+            "accepted": {
+                arm: sum(
+                    item["accepted"] is True
+                    for item in family_runs
+                    if item["arm"] == arm
+                )
+                for arm in confirmation_arms
+            },
+            "elapsed_seconds_median": {
+                arm: round(median(values), 3)
+                for arm, values in family_elapsed.items()
+            },
+            "agent_operational_calls_median": {
+                arm: median(values)
+                for arm, values in family_operational.items()
+            },
+            "elapsed_ratio_vs_symphlo_by_condition": ratios,
+            "skill_invocation_count": sum(
+                item.get("skill_invocation_observed") is True
+                for item in family_runs
+            ),
+        }
+
     replay = value["conversation_to_reusable_flow"]["live_replay"]
     return {
         "ordinary_office_tasks": {
@@ -119,6 +186,11 @@ def calculate(value: dict[str, Any]) -> dict[str, Any]:
                 min(reductions.values()),
                 max(reductions.values()),
             ],
+        },
+        "fixed_orchestration_confirmation": {
+            "run_count": len(confirmation_runs),
+            "accepted": sum(item["accepted"] is True for item in confirmation_runs),
+            "families": confirmation_families,
         },
         "conversation_to_reusable_flow": {
             "live_replay_count": len(replay),

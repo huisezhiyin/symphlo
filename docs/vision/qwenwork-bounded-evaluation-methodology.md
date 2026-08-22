@@ -150,6 +150,67 @@ limits the result: it is product-development evidence, not an untouched holdout.
 The public test recomputes accepted counts, mean, median, operational-call
 median and the paired reduction range from the six per-Run rows.
 
+## Cohort B2: fixed-family nominal/fault confirmation
+
+### Purpose
+
+Add a matched Native / Skill-available / Symphlo view under both nominal input
+and one bounded read-timeout, while retaining the same one-task, zero-provider-
+retry and stop-on-invalid boundary.
+
+### Frozen schedules and families
+
+The public summary contains all twelve sanitized terminal rows from two frozen
+six-position families:
+
+- `periodic_business`: a 17-Node Flow, six business-tool kinds and three
+  Artifacts;
+- `expense_audit_capability_class`: an 18-Node Flow, one bounded semantic Agent
+  Node, six business-tool kinds and three Artifacts.
+
+Each family has exactly one Native, Skill-available and Symphlo position for
+nominal input and for the bounded read-timeout. Position order was frozen per
+family before dispatch. Every position used a fresh task, allowed zero provider
+retry, required the selected model binding and observed at least 300 seconds
+between returned and next-reserved provider tasks.
+
+### Capability and treatment validity
+
+The final expense family used a fail-closed capability-class policy rather than
+an exact tool-name allowlist:
+
+- local workspace and planning operations were allowed and measured;
+- Skill was allowed only in the Skill arm;
+- provider memory, Web/network, external MCP, sub-Agent/delegation and unknown
+  capabilities were prohibited;
+- the independent business-effect guard still required only the six declared
+  tool kinds, one approval, one submission and one notification.
+
+QwenWork awareness memory remained disabled and all six expense rows recorded
+zero memory calls. Both expense Skill rows invoked the Skill. Neither periodic
+Skill row invoked it and those rows remain intent-to-treat. No live expense row
+invoked a planning tool; `TodoWrite` and future planner-name classification are
+covered by offline contract tests, not claimed as a live provider observation.
+
+### Acceptance and metrics
+
+All six business tools, semantic outputs, recovery outcomes and effect guards
+must pass. A fault row additionally requires exactly one failed read outcome
+followed by success, with no duplicate critical effect. Harness invalidity is
+not a business failure and stops the family without retry or replacement.
+
+The public recalculator derives, from all twelve rows:
+
+- accepted counts per family and arm;
+- median elapsed time and Agent operational calls per family and arm;
+- Native-to-Symphlo and Skill-to-Symphlo elapsed ratios for nominal and fault;
+- observed Skill invocation counts.
+
+The periodic family followed earlier harness-contract repairs, and the expense
+family followed immutable stopped v4/v5/v6 cohorts. Those earlier rows were not
+reclassified, widened, resumed or used in the twelve-row confirmation. This is
+development confirmation rather than a pristine holdout.
+
 ## Cohort C: conversation to reusable Flow
 
 ### Purpose
@@ -240,12 +301,13 @@ forced to reproduce the same headline numbers.
 
 ## Threats to validity
 
-- Four ordinary cases and three paired strong-case inputs are small samples.
+- Four ordinary cases, three paired strong-case inputs and two six-position
+  confirmation families are small samples.
 - The evidence was produced during harness development, not on a pristine
   preregistered holdout.
-- Strong-case performance compares direct and Symphlo, not a matched Skill arm.
-- The Skill comparison combines ordinary-task parity with a demonstrated
-  generated-Flow replacement path; it is not a Skill latency leaderboard.
+- The original strong-case cohort compares direct and Symphlo. The later
+  confirmation includes a matched Skill-available arm, but only two inputs per
+  family and mixed observed Skill adoption; it is not a Skill leaderboard.
 - There were no repeated seeds or independent evaluators.
 - Raw provider evidence is private and has not received external audit.
 - Provider/model/client changes may affect latency and tool behaviour.

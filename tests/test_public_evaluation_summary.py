@@ -136,6 +136,43 @@ class PublicEvaluationSummaryTest(unittest.TestCase):
         )
         self.assertEqual(strong["superseded_development_attempts"]["count"], 3)
 
+        confirmation = value["fixed_orchestration_confirmation"]
+        confirmation_runs = confirmation["runs"]
+        self.assertEqual(confirmation["family_count"], 2)
+        self.assertEqual(len(confirmation_runs), 12)
+        self.assertEqual(sum(item["accepted"] is True for item in confirmation_runs), 12)
+        self.assertEqual(confirmation["provider_tasks_per_position"], 1)
+        self.assertEqual(confirmation["provider_retry_limit"], 0)
+        self.assertEqual(confirmation["minimum_inter_position_gap_seconds"], 300)
+        by_family = {
+            family: [item for item in confirmation_runs if item["family"] == family]
+            for family in {"periodic_business", "expense_audit_capability_class"}
+        }
+        for runs in by_family.values():
+            self.assertEqual(len(runs), 6)
+            self.assertEqual(
+                {
+                    arm: sum(item["accepted"] is True for item in runs if item["arm"] == arm)
+                    for arm in {
+                        "qwenwork_direct",
+                        "qwenwork_skill_available",
+                        "qwenwork_symphlo",
+                    }
+                },
+                {
+                    "qwenwork_direct": 2,
+                    "qwenwork_skill_available": 2,
+                    "qwenwork_symphlo": 2,
+                },
+            )
+        expense = by_family["expense_audit_capability_class"]
+        self.assertEqual(sum(item["memory_tool_calls"] for item in expense), 0)
+        self.assertEqual(sum(item["skill_invocation_observed"] is True for item in expense), 2)
+        self.assertEqual(
+            sum(item["skill_invocation_observed"] is True for item in by_family["periodic_business"]),
+            0,
+        )
+
         generated = value["conversation_to_reusable_flow"]
         self.assertTrue(generated["human_apply_required"])
         self.assertEqual(generated["manual_flow_edits_before_replay"], 0)
@@ -207,6 +244,40 @@ class PublicEvaluationSummaryTest(unittest.TestCase):
             {"qwenwork_direct": 24, "qwenwork_symphlo": 2},
         )
         self.assertEqual(strong["symphlo_reduction_percent_range"], [79.9, 84.8])
+        confirmation = derived["fixed_orchestration_confirmation"]
+        self.assertEqual(confirmation["run_count"], 12)
+        self.assertEqual(confirmation["accepted"], 12)
+        periodic = confirmation["families"]["periodic_business"]
+        self.assertEqual(
+            periodic["elapsed_seconds_median"],
+            {
+                "qwenwork_direct": 136.851,
+                "qwenwork_skill_available": 146.903,
+                "qwenwork_symphlo": 26.511,
+            },
+        )
+        self.assertEqual(
+            periodic["agent_operational_calls_median"],
+            {
+                "qwenwork_direct": 14.0,
+                "qwenwork_skill_available": 12.0,
+                "qwenwork_symphlo": 1.0,
+            },
+        )
+        expense = confirmation["families"]["expense_audit_capability_class"]
+        self.assertEqual(
+            expense["elapsed_ratio_vs_symphlo_by_condition"],
+            {
+                "fault": {
+                    "qwenwork_direct_over_symphlo": 5.571,
+                    "qwenwork_skill_available_over_symphlo": 8.275,
+                },
+                "nominal": {
+                    "qwenwork_direct_over_symphlo": 8.26,
+                    "qwenwork_skill_available_over_symphlo": 9.958,
+                },
+            },
+        )
         self.assertEqual(
             derived["conversation_to_reusable_flow"],
             {"live_replay_count": 2, "accepted": 2},
