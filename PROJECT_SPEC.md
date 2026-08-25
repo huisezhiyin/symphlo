@@ -31,11 +31,15 @@ side without consuming each other's accepted output.
 
 Its primary design move is to externalize useful high-level phases of an
 otherwise opaque Agent loop into an observable and orchestratable outer loop.
-Task granularity can slide from one broad Agent Node toward more semantic
-boundaries when observation, recovery, replacement, maintenance or explicit
-handoff value earns the coordination cost. This is a design-time and
-maintenance choice, not automatic decomposition, runtime graph rewriting or a
-Loop-depth execution mode.
+Task granularity can slide from one broad Agent task turn toward several bounded
+task turns when observation, recovery, replacement, maintenance or explicit
+handoff value earns the coordination cost. Those turns may use fresh
+conversations, explicitly share one same-Run conversation, bind different
+Agents or applications, or hand work to another declared Capability. Accepted
+Context, Results, handoffs and Artifacts connect the turns without making
+conversation state the task truth. This is a design-time and maintenance choice,
+not automatic decomposition, runtime graph rewriting or a Loop-depth execution
+mode.
 
 Granularity also changes who owns the observable loop. With one broad Agent
 Node, the Agent owns most adaptive iteration and the Flow owns only the durable
@@ -72,10 +76,11 @@ replaceable executors and comparable evidence instead of hope-based
 orchestration.
 
 Designers normally split semantic work such as `observe -> analyze -> challenge
--> deliver`, not an Agent's private model calls, tool calls or turns. Every
-Agent Node may still run its own autonomous inner loop. Atomic Model and Tool
-Nodes are distinct truthful contracts rather than assumptions inferred from a
-small task description. A Tool Node represents an explicit Flow-owned
+-> deliver` into bounded Agent task turns. They do not split or micromanage an
+Agent's private model calls, tool calls, reasoning steps or internal turns.
+Every Agent Node may still run its own autonomous inner loop. Atomic Model and
+Tool Nodes are distinct truthful contracts rather than assumptions inferred
+from a small task description. A Tool Node represents an explicit Flow-owned
 operation; it does not expose tool calls that remain inside an Agent Node.
 
 An Agent is a first-class Node executor. The Agent may decide that its task
@@ -135,6 +140,10 @@ orchestration only where explicit task operations create value.
 12. **Executor-agnostic**: capabilities and versioned adapters sit behind portable contracts.
 13. **Evidence-first**: rendering, mocks and successful registration are not substitutes for accepted executor output and Artifacts.
 14. **Explicit authority**: generated candidates do not save, run or escalate effects without validation and confirmation.
+15. **Assignable turn topology**: each explicit Agent task turn may bind a
+    fresh conversation, an approved same-Run session group, another Agent or
+    application, or a different Capability. Accepted Context, Results,
+    handoffs and Artifacts connect the turns; private session memory does not.
 
 ## 3. Public Experience
 

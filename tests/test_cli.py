@@ -78,6 +78,7 @@ class CliTests(unittest.TestCase):
         viewpoint = (root / "docs" / "vision" / "observable-outer-agent-loop.md").read_text(
             encoding="utf-8"
         )
+        normalized_readme = " ".join(readme.split())
         for command in ("make help", "make doctor", "make demo"):
             self.assertIn(command, readme)
         self.assertIn(
@@ -86,6 +87,15 @@ class CliTests(unittest.TestCase):
         )
         self.assertIn(
             "does not mean automatic decomposition or a runtime Loop-depth mode",
+            readme,
+        )
+        self.assertIn(
+            "turn one long-chain Agent task into multiple bounded Agent task turns",
+            normalized_readme,
+        )
+        self.assertIn("Split or merge the task turns", readme)
+        self.assertIn(
+            "A Skill makes an Agent better **inside a task turn**",
             readme,
         )
         self.assertIn(
@@ -101,7 +111,7 @@ class CliTests(unittest.TestCase):
             readme,
         )
         self.assertIn(
-            "The Slidable, Observable Outer Agent Loop",
+            "The Slidable, Observable and Assignable Outer Agent Loop",
             viewpoint,
         )
         self.assertIn(
@@ -110,6 +120,14 @@ class CliTests(unittest.TestCase):
         )
         self.assertIn(
             "Externalization opens execution supply",
+            viewpoint,
+        )
+        self.assertIn(
+            "One durable task, many bounded Agent turns",
+            viewpoint,
+        )
+        self.assertIn(
+            "start a fresh conversation with only accepted Context",
             viewpoint,
         )
         self.assertIn(

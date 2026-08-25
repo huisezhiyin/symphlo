@@ -24,7 +24,8 @@ Fixed, repeated and long-running processes remain strong use cases, but the
 broader product idea is **durable collaboration**. A Flow may coordinate:
 
 - several Agents with different roles, tools, providers or autonomy levels;
-- one Agent across several observable task boundaries;
+- one Agent across several bounded task turns, using fresh conversations or an
+  explicit same-Run session group according to the handoff contract;
 - applications and services connected through MCP, HTTP, CLI or other adapters;
 - deterministic tools, model calls, scripts, compute and local software;
 - Human review, approval, exception handling and handoff.
@@ -49,6 +50,12 @@ Node granularity is chosen for collaboration value. Make a boundary explicit
 when it creates useful ownership, observation, authorization, handoff,
 recovery, replacement, evaluation or maintenance. Do not split private model
 turns or tool calls merely to make a graph look sophisticated.
+
+The turn topology is deliberately slidable and assignable. A designer may
+merge semantic work into one broad Agent Node or split a long chain into
+bounded task turns. Each boundary may keep or switch the Agent, application,
+Capability or Skill; accepted Context, Results, handoffs and Artifacts preserve
+the complete task outside every private conversation.
 
 The current Local Alpha implements a deliberately bounded linear subset. That
 implementation boundary must be stated honestly, but it does not narrow the
@@ -94,6 +101,8 @@ temporary directory provides host security isolation.
   Flow.
 - Keep execution supply open and replaceable behind versioned contracts.
 - Keep Flow/Run/Context/Artifact history as durable product truth.
+- Keep turn granularity, same-Run session continuity and executor assignment
+  explicit in the Flow and Capability contracts.
 - Keep Canvas and private executor sessions as projections or implementation
   details, never the source of truth.
 - Distinguish product direction from current Alpha claims: future collaboration

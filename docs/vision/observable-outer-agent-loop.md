@@ -1,4 +1,4 @@
-# The Slidable, Observable Outer Agent Loop
+# The Slidable, Observable and Assignable Outer Agent Loop
 
 ## The missing layer is not more intelligence
 
@@ -18,20 +18,38 @@ Agent session, a team cannot reliably answer basic operational questions:
 - Which part can resume without replaying everything?
 - Did the next Run behave like the previous one?
 
-Symphlo exists for that gap. It is a slidable, observable outer loop for
-durable Agent work. It selectively externalizes useful high-level phases while
-leaving each Agent's private inner loop autonomous. Its central separation is:
+Symphlo exists for that gap. It is a slidable, observable and assignable outer
+loop for durable Agent work. It selectively externalizes useful high-level
+phases while leaving each Agent's private inner loop autonomous. Its central
+separation is:
 
 > Flow controls what, who, when and handoff. The Agent controls how.
 
 The Agent keeps its opaque inner loop. The outer task loop makes selected
 semantic phases durable, observable and orchestratable.
 
-The outer granularity can slide. One broad Agent Node may own the complete
-inner loop, or selected phases may become separate durable Nodes when their
-observation, recovery, replacement, maintenance or handoff value earns the
-coordination cost. Sliding is a design and maintenance decision—not automatic
-decomposition, runtime graph rewriting or a Loop-depth mode.
+The outer granularity can slide. One broad Agent task turn may own the complete
+inner loop, or a long chain may become several bounded Agent task turns when
+their observation, recovery, replacement, maintenance or handoff value earns
+the coordination cost. Sliding is a design and maintenance decision—not
+automatic decomposition, runtime graph rewriting or a Loop-depth mode.
+
+## One durable task, many bounded Agent turns
+
+An external Agent Node is a bounded task invocation, not a model-reasoning
+step. Splitting a long chain into Nodes lets a designer choose the execution
+topology at each durable handoff:
+
+- start a fresh conversation with only accepted Context;
+- reuse one explicit same-Run conversation when continuity matters;
+- keep the same Agent, switch Agents or applications, or bind another Capability;
+- invoke a Skill inside one turn and invoke it again in a later turn;
+- persist the accepted Result and Artifact outside every conversation.
+
+The complete task therefore no longer depends on one turn retaining every
+intermediate fact, instruction, effect and correction. Turn boundaries, session
+continuity and executor assignment can change while accepted task truth remains
+stable.
 
 ## Externalization opens execution supply
 
@@ -228,6 +246,10 @@ A Skill may make a Writer Agent much better at research or editing. It still
 does not need to own the accepted draft handed to another Node, the terminal
 state of the Run or the history used to compare repeated executions. Those are
 outer-loop responsibilities.
+
+A concise boundary is: **a Skill makes an Agent better inside a task turn;
+Symphlo makes bounded turns, sessions, Agents, applications and capabilities
+operate as one durable task.**
 
 Likewise, a Flow should not absorb everything a Skill or Agent knows. It should
 describe stable responsibility and handoff while leaving execution technique

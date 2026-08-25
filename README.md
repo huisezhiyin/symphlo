@@ -22,21 +22,27 @@ Agents are good at looping: inspect, reason, use tools, revise and continue.
 Symphlo can externalize selected high-level phases of that loop when the added
 boundary has collaboration or operational value.
 
-Symphlo lets you **externalize selected high-level phases of an Agent's inner
-loop** into a durable outer loop. Its task granularity can slide from one broad
-Agent Node to multiple observable boundaries when recovery, replacement,
-maintenance or explicit handoff makes the extra coordination worthwhile:
+Symphlo lets you **turn one long-chain Agent task into multiple bounded Agent
+task turns** connected by durable Context, Results, handoffs and Artifacts. A
+designer may keep one broad Agent Node when autonomy is enough, or externalize
+semantic phases when observation, replacement, maintenance or explicit handoff
+makes the boundary worthwhile.
+
+**Split or merge the task turns. Start fresh or reuse a same-Run session.
+Assign each boundary to the Agent, application or Capability that fits. Keep
+the task truth outside every conversation.**
 
 ```text
-One autonomous Agent session          A Symphlo outer loop
+One long Agent session                One durable Symphlo Run
 
-  research                              Research Agent Node
+  research                              Turn 1 · Session A · Research Agent
   plan                                     ↓ accepted Context
-  draft            ───────────▶          Writer Agent Node
-  review                                   ↓ accepted Context
-  revise                                 Reviewer Agent Node
-  deliver                                  ↓ accepted Context
-     ...                                  article.md Artifact
+  draft            ───────────▶          Turn 2 · Session B · Writer + Skill
+  review                                   ↓ accepted draft
+  revise                                 Turn 3 · Session C · Reviewer Agent
+  deliver                                  ↓ review handoff
+     ...                                 Turn 4 · Session B · Writer + Skill
+                                             ↓ final Artifact
 ```
 
 Granularity is also a slider between Agent autonomy and Flow orchestration:
@@ -54,9 +60,11 @@ Symphlo does not modify the Agent to move along this spectrum. It shapes work
 from the outside through bounded tasks, accepted Context, result contracts,
 effects, executor selection and state transitions.
 
-This is not chain-of-thought tracing. The current Local Alpha does not split an
-Agent Node into its private model calls, tool calls or turns. Each Agent Node
-keeps its normal, opaque inner loop and decides **how** to finish its task.
+An Agent task turn is one bounded Node invocation, not one internal model step.
+This is not chain-of-thought tracing: the current Local Alpha does not split or
+micromanage the private model calls, tool calls, reasoning steps or turns inside
+an Agent Node. Each Agent keeps its normal opaque inner loop and decides **how**
+to finish the bounded task.
 
 `Slidable` does not mean automatic decomposition or a runtime Loop-depth mode.
 It is a design and maintenance choice about how much of the high-level Agent
@@ -93,6 +101,19 @@ everything out.
 
 **Flow controls `what / who / when / dependencies / authority / handoff`.
 Each Agent or application controls `how`.**
+
+### Four controls for long-chain work
+
+| Control | What may change at a durable boundary |
+| --- | --- |
+| **Slidable task turns** | merge work into one broad Agent Node or split it into bounded semantic task turns |
+| **Session topology** | start fresh to bound carried Context or reuse an explicit same-Run conversation |
+| **Assignable execution** | keep the same Agent, switch Agents or applications, invoke a Skill or bind another Capability |
+| **Observable truth** | persist accepted input, effects, events, Result, handoff and Artifacts independently of session memory |
+
+A Skill makes an Agent better **inside a task turn**. Symphlo makes bounded
+turns, sessions, Agents, applications and capabilities operate as **one durable
+task**.
 
 Symphlo is developed alongside
 [Clerklet](https://github.com/huisezhiyin/clerklet), the separate standalone
@@ -245,13 +266,16 @@ Symphlo becomes valuable when work has one or more of these properties:
 - **multi-participant collaboration** — Agents, applications, tools or Humans
   must consume each other's accepted output;
 - **high repetition** — the same work must run consistently with new inputs;
-- **long chains** — work crosses many steps, executors, failures or conversations;
+- **long chains** — one oversized turn would otherwise accumulate too much work and conversational context;
+- **task or executor switching** — responsibility must move across sessions, Agents, applications, tools or people;
 - **important handoffs** — an accepted result must be inspected before the next phase;
 - **maintenance pressure** — teams need to compare Runs and replace unstable steps.
 
-In these scenarios, an explicit outer Flow can be more reusable and operable
-than a loose Skill invocation or one long autonomous Agent session. The user
-entrypoint can still remain simple: a natural-language goal or one command.
+In these scenarios, an explicit outer Flow has a structural advantage over a
+loose Skill invocation or one long autonomous Agent session: execution
+knowledge may stay inside each Node, while the complete task survives outside
+every turn and conversation. The user entrypoint can still remain simple: a
+natural-language goal or one command.
 
 ### Bounded intelligence for repetitive office work
 
@@ -334,15 +358,17 @@ substantive divergence instead of falsely blaming the reused prefix.
 
 ### Choose the right operating model
 
-| Use | Best when | Owns durable cross-step truth? |
-| --- | --- | --- |
-| One Agent | work is open-ended, exploratory or disposable | usually no |
-| A Skill | an Agent needs reusable instructions, tools and conventions | no; it improves `how` |
-| A Symphlo Flow | phases repeat, handoffs matter or work must survive sessions | yes; Flow, Run, Context and Artifacts |
+| Use | Best when | Operating scope | Owns durable cross-turn truth? |
+| --- | --- | --- | --- |
+| One Agent | work is open-ended, exploratory or disposable | one autonomous task/session | usually no |
+| A Skill | an Agent needs reusable instructions, tools and conventions | execution knowledge inside a task turn | no; it improves `how` |
+| A Symphlo Flow | a long chain must span turns, sessions, executors or handoffs | the complete durable task | yes; Flow, Run, Context and Artifacts |
 
 These layers compose. A Symphlo Node may invoke a Skill inside an Agent's normal
-loop. The distinction is ownership: execution knowledge can remain inside the
-Node while accepted task state remains outside it.
+loop, and a later Node may invoke the same Skill again without asking the first
+turn to carry the entire chain. The distinction is ownership: execution
+knowledge can remain inside the Node while accepted task state remains outside
+it.
 
 An Agent or another client may recommend one of these operating models, but a
 recommendation is not Run truth. It must identify observable task properties,
